@@ -88,14 +88,14 @@
           if (notice && age !== null) {
             notice.textContent = 'تعرض الآن نسخة محفوظة من القائمة' +
               (age > 3600000 ? ' عمرها ' + Math.round(age / 3600000) + ' ساعة.' : ' قبل دقائق.');
-            notice.classList.remove('hidden');
+            UI.setHidden(notice, false);
           }
           // الخدمة المحدّثة حدّثت الكاش في الخلفية — نقرأ النسخة الأحدث بعد لحظات
           if (Api.online) {
             setTimeout(function () {
               loadCatalog().then(function () {
                 var fresh = $('menu-notice');
-                if (fresh) fresh.classList.add('hidden');
+                if (fresh) UI.setHidden(fresh, true);
               });
             }, 2500);
           }
@@ -543,7 +543,8 @@
     });
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').catch(function () { /* تجاهل */ });
+      // التسجيل من جذر الموقع ليشمل نطاق /api/ أيضًا (كي يعمل التخزين دون اتصال)
+      navigator.serviceWorker.register('../sw.js', { scope: '../' }).catch(function () { /* تجاهل */ });
     }
   }
 

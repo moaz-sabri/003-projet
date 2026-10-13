@@ -213,4 +213,24 @@ return function (): void {
     // رموز QR لا تحتوي أي بيانات اعتماد
     Assert::false(str_contains($svg, 'password'), 'رمز QR لا يحتوي كلمة مرور');
     Assert::false(str_contains($svg, 'admin'), 'رمز QR لا يحتوي مسار الإدارة');
+
+    /* (10) إظهار أخطاء لوحة الإدارة ---------------------------------------
+       خطأ سابق: عناصر التنبيه كانت تحمل الصنف hidden مع الخاصية hidden،
+       فكانت رسائل فشل الدخول وتغيير كلمة المرور لا تظهر للمدير إطلاقًا. */
+    Assert::group('الأمان — رسائل خطأ الإدارة تظهر فعلًا');
+
+    $adminPhp = (string) file_get_contents(BASE_PATH . '/admin/index.php');
+    $adminJs  = (string) file_get_contents(BASE_PATH . '/admin/assets/admin.js');
+
+    preg_match_all('/class="[^"]*\bhidden\b[^"]*"[^>]*id="[^"]+"/', $adminPhp, $adminClassHidden);
+    Assert::same(0, count($adminClassHidden[0]), 'لا عنصر تنبيه يجمع بين الصنف hidden والمعرّف');
+
+    Assert::contains($adminPhp, 'id="login-error"', 'حقل خطأ الدخول موجود');
+    Assert::contains($adminPhp, 'id="password-error"', 'حقل خطأ تغيير كلمة المرور موجود');
+    Assert::contains($adminJs, "classList.toggle('hidden'", 'دالة موحّدة للإظهار والإخفاء');
+    Assert::contains($adminJs, "setHidden($('login-error'), false)", 'إظهار فشل الدخول فعليًا');
+    Assert::false(
+        (bool) preg_match("/\\\$\('login-error'\)\.hidden\s*=/", $adminJs),
+        'رسالة فشل الدخول لا تُضبط بالخاصية فقط'
+    );
 };

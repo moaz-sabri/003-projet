@@ -14,7 +14,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="القائمة">
 
-  <link rel="stylesheet" href="css/app.css?v=1.0.1">
+  <link rel="stylesheet" href="css/app.css?v=1.0.3">
 </head>
 <body>
 
@@ -78,7 +78,7 @@
 
   <!-- شاشة المنتجات -->
   <section class="view" id="view-menu">
-    <div class="notice hidden" id="menu-notice"></div>
+    <div class="notice" id="menu-notice" hidden></div>
     <div class="product-grid" id="product-grid"></div>
     <p class="empty-state" id="menu-empty" hidden></p>
   </section>
@@ -134,7 +134,7 @@
         <div class="summary-row summary-total"><span>الإجمالي</span><span id="checkout-total">0</span></div>
       </div>
 
-      <div class="alert hidden" id="checkout-error"></div>
+      <div class="alert" id="checkout-error" hidden></div>
 
       <button class="btn btn-primary btn-lg btn-block" id="submit-order" type="submit">تأكيد الطلب</button>
       <p class="footnote">لا يُعرض تأكيد الطلب إلا بعد حفظه بنجاح على الخادم.</p>
@@ -166,7 +166,7 @@
       <div class="track-meta" id="track-meta"></div>
       <ul class="track-items" id="track-items"></ul>
       <div class="summary-row summary-total"><span>الإجمالي</span><span id="track-total">0</span></div>
-      <div class="alert hidden" id="track-error"></div>
+      <div class="alert" id="track-error" hidden></div>
       <button class="btn btn-ghost btn-block" id="track-refresh" type="button">تحديث الحالة</button>
     </div>
   </section>

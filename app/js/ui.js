@@ -384,11 +384,23 @@
       $('track-total').textContent = order.total;
     },
 
+    /**
+     * إظهار/إخفاء عنصر بأمان.
+     * ملاحظة مهمة: بعض العناصر تحمل الصنف hidden في HTML، بينما أخرى
+     * تستخدم الخاصية hidden فقط. هنا نضبط الاثنين معًا حتى لا تبقى
+     * رسالة خطأ مخفية بسبب تعارض القواعد.
+     */
+    setHidden: function (el, hidden) {
+      if (!el) return;
+      el.hidden = hidden;
+      el.classList.toggle('hidden', hidden);
+    },
+
     showError: function (alertId, message, fields) {
       var alert = $(alertId);
       if (!alert) return;
       alert.textContent = message;
-      alert.hidden = false;
+      UI.setHidden(alert, false);
       alert.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
       UI.clearFieldErrors();
@@ -404,7 +416,7 @@
 
     clearError: function (alertId) {
       var alert = $(alertId);
-      if (alert) alert.hidden = true;
+      if (alert) UI.setHidden(alert, true);
       UI.clearFieldErrors();
     },
 

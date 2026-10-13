@@ -46,19 +46,36 @@ return function (): void {
     /* (1) Service Worker --------------------------------------------------- */
     Assert::group('PWA — Service Worker');
 
-    $swPath = BASE_PATH . '/app/sw.js';
-    Assert::true(is_file($swPath), 'ملف Service Worker موجود');
+    // عامل الخدمة في جذر الموقع لي اعترض /api/ أيضًا
+    $swPath = BASE_PATH . '/sw.js';
+    Assert::true(is_file($swPath), 'ملف Service Worker موجود في جذر الموقع');
+    Assert::false(is_file(BASE_PATH . '/app/sw.js'), 'لا نسخة قديمة داخل app/');
 
     $sw = (string) file_get_contents($swPath);
     Assert::contains($sw, "addEventListener('install'", 'المعالج يهيّئ الكاش عند التثبيت');
     Assert::contains($sw, "addEventListener('fetch'", 'المعالج يعترض الطلبات');
     Assert::contains($sw, 'catalog.snapshot', 'كتالوج المنتجات يُخزَّن للعمل دون اتصال');
 
+    // تسجيل عامل الخدمة بنطاق الجذر
+    $appJs = (string) file_get_contents(BASE_PATH . '/app/js/app.js');
+    Assert::contains($appJs, "register('../sw.js', { scope: '../' })", 'التسجيل بنطاق الجذر ليشمل /api/');
+
     // لا يخزّن طلبات الإدارة أو الطلبات الحساسة
     Assert::contains($sw, "startsWith('admin.')", 'طلبات الإدارة مستثناة من الكاش');
     Assert::contains($sw, "order.status", 'استجابة متابعة الطلب مستثناة من الكاش');
     Assert::contains($sw, "'/admin/'", 'مسارات الإدارة مستثناة من الكاش');
     Assert::false(str_contains($sw, 'ignoreSearch: true'), 'لا استخدام لـ ignoreSearch مع مسارات API');
+
+    // خطأ سابق: endsWith('') يطابق كل المسارات فيخلط كاش الواجهة بكاش البيانات
+    Assert::false(str_contains($sw, "endsWith(asset.replace('./', ''))"), 'مطابقة هيكل التطبيق دقيقة (لا endsWith فارغ)');
+    Assert::contains($sw, 'function isShellAsset(', 'توجد دالة مطابقة دقيقة للمسارات');
+    Assert::contains($sw, 'lc-data-', 'كاش منفصل لبيانات الكتالوج');
+
+    // خطأ سابق: cache.addAll يرسل الطلبات دفعة واحدة، ويفشل كليًا على
+    // الخوادم قليلة العمّال (مثل php -S) فيبقى الكاش فارغًا بلا اتصال.
+    Assert::false(str_contains($sw, 'cache.addAll('), 'التخزين المسبق يفشل بأمان (لا addAll)');
+    Assert::contains($sw, 'Promise.allSettled', 'كل ملف يُخزَّن على حدة مع تجاهل الفشل');
+    Assert::contains($sw, 'async function precache()', 'دالة تخزين مسبق مرنة');
 
     // لا طابور إرسال دون اتصال
     Assert::false(str_contains($sw, 'Background Sync'), 'لا يوجد طابور مزامنة للطلبات');
@@ -71,8 +88,32 @@ return function (): void {
     Assert::contains($appHtml, 'rel="manifest"', 'الواجهة تربط ملف manifest');
     Assert::contains($appHtml, 'lang="ar" dir="rtl"', 'الواجهة عربية RTL');
     Assert::contains($appHtml, 'viewport-fit=cover', 'الواجهة متوافقة مع شاشات الهواتف');
-    Assert::contains($appJs, "serviceWorker.register('sw.js')", 'الواجهة تسجّل Service Worker');
+    Assert::contains($appJs, "serviceWorker.register('../sw.js', { scope: '../' })", 'الواجهة تسجّل عامل الخدمة بنطاق الجذر');
     Assert::contains($appHtml, 'theme-color', 'لون شريط الحالة معرّف');
+
+    /* (2.1) خطأ سابق: رسائل الخطأ كانت لا تظهر أبدًا ------------------------
+       العناصر التي تحمل الصنف hidden في HTML تختفي عبر قاعدة CSS التي
+       تفرض display:none، بينما كان الكود يضبط الخاصية hidden فقط،
+       فلا تظهر رسالة الخطأ إطلاقًا (يختفي الطلب دون اتصال صامتًا).
+       القاعدة المعتمدة: لا نجمع بين الصنف hidden والخاصية hidden،
+       والإظهار/الإخفاء يتم عبر دالة موحّدة تضبط الاثنين معًا.        */
+    Assert::group('عرض رسائل الخطأ فعليًا');
+
+    $customerJs = '';
+    foreach (glob(BASE_PATH . '/app/js/*.js') ?: [] as $file) {
+        $customerJs .= (string) file_get_contents($file);
+    }
+    Assert::contains($customerJs, "classList.toggle('hidden'", 'توجد دالة توحّد الإظهار والإخفاء');
+
+    // لا يجوز جمع الصنف hidden مع معرّف عنصر: مصدر تعارض كان يُخفي التنبيهات
+    preg_match_all('/class="[^"]*\bhidden\b[^"]*"[^>]*id="[^"]+"/', $appHtml, $classHidden);
+    Assert::same(0, count($classHidden[0]), 'لا عنصر يبدأ عبر الصنف hidden ويحمل معرّفًا');
+
+    // حقول التنبيه موجودة وتُخفى بالخاصية (فتظهر فعليًا عند الخطأ)
+    Assert::contains($appHtml, 'id="checkout-error"', 'يوجد حقل لرسائل خطأ إتمام الطلب');
+    Assert::contains($appHtml, 'id="track-error"', 'يوجد حقل لرسائل خطأ متابعة الطلب');
+    Assert::contains($customerJs, 'UI.setHidden(alert, false)', 'إظهار خطأ الطلب يزيل الإخفاء فعليًا');
+    Assert::contains($customerJs, 'UI.setHidden(alert, true)', 'إخفاء خطأ الطلب بعد التصحيح');
 
     /* (3) لا تخزين مؤقت عام لاستجابات الإدارة ------------------------------ */
     Assert::group('الأمان — استجابات الإدارة لا تُخزَّن');

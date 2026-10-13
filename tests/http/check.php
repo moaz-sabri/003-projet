@@ -87,8 +87,8 @@ check('واجهة الزبون تُقدَّم', $home['status'] === 200, 'status
 check('الواجهة عربية واتجاه RTL', str_contains($home['raw'], 'dir="rtl"'));
 check('الواجهة تربط ملف manifest', str_contains($home['raw'], 'manifest.webmanifest'));
 
-$sw = req($base . '/app/sw.js');
-check('Service Worker متاح', $sw['status'] === 200 && str_contains($sw['raw'], 'addEventListener'));
+$sw = req($base . '/sw.js');
+check('Service Worker متاح على جذر الموقع', $sw['status'] === 200 && str_contains($sw['raw'], 'addEventListener'));
 
 $manifest = json_decode(req($base . '/app/manifest.webmanifest')['raw'], true);
 check('مانيفست PWA صالح', is_array($manifest) && ($manifest['dir'] ?? '') === 'rtl');

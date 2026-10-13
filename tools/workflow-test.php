@@ -430,8 +430,9 @@ $manifest = http($base . '/app/manifest.webmanifest');
 check('مانيفست PWA صالح', $manifest['status'] === 200 && ($manifest['json']['display'] ?? '') === 'standalone');
 check('الأيقونات معلنة', count($manifest['json']['icons'] ?? []) >= 3);
 
-$sw = http($base . '/app/sw.js');
-check('Service Worker متاح', $sw['status'] === 200 && str_contains($sw['raw'], 'addEventListener'));
+$sw = http($base . '/sw.js');
+check('Service Worker متاح على جذر الموقع', $sw['status'] === 200 && str_contains($sw['raw'], 'addEventListener'));
+check('نطاقه يشمل واجهة API', str_contains($sw['raw'], "catalog.snapshot"));
 check('لا طابور مزامنة للطلبات', !str_contains($sw['raw'], "addEventListener('sync'"));
 check('استجابات الإدارة مستثناة من الكاش', str_contains($sw['raw'], "startsWith('admin.')"));
 

@@ -136,6 +136,7 @@ final class Migrations
             CREATE INDEX IF NOT EXISTS idx_orders_location    ON orders(location_id, status);
             CREATE INDEX IF NOT EXISTS idx_orders_token       ON orders(public_token);
             CREATE INDEX IF NOT EXISTS idx_orders_served_on   ON orders(served_on, number);
+            CREATE INDEX IF NOT EXISTS idx_orders_created     ON orders(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_items_order        ON order_items(order_id);
             CREATE INDEX IF NOT EXISTS idx_events_order       ON order_events(order_id, id);
             CREATE INDEX IF NOT EXISTS idx_login_ip           ON login_attempts(ip, created_at DESC);

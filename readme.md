@@ -161,10 +161,11 @@ https://your-site.com/setup/
 
 ```
 project/
+├── sw.js                     Service Worker على جذر الموقع (ليشمل /api/ أيضًا)
+│
 ├── app/                     واجهة الزبون (PWA)
 │   ├── index.html           هيكل الصفحة (SPA بسيطة)
 │   ├── manifest.webmanifest بيان التطبيق
-│   ├── sw.js                Service Worker (تخزين للعمل دون اتصال)
 │   ├── assets/icons/        أيقونات التطبيق (مولّدة)
 │   ├── css/app.css
 │   ├── js/                  api.js · store.js · ui.js · app.js

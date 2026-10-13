@@ -25,7 +25,16 @@ $nonce = base64_encode(random_bytes(16));
 header('Content-Type: text/html; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Frame-Options: SAMEORIGIN');
-header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'nonce-" . $nonce . "'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+// سياسة أمان محتوى صارمة: بلا inline scripts، وinline style مسموح عبر nonce فقط
+$csp = "default-src 'self'; "
+    . "img-src 'self' data:; "
+    . "style-src 'self' 'nonce-" . $nonce . "'; "
+    . "script-src 'self'; "
+    . "connect-src 'self'; "
+    . "form-action 'self'; "
+    . "base-uri 'none'; "
+    . "frame-ancestors 'none'";
+header('Content-Security-Policy: ' . $csp);
 
 // ألوان الحالات تأتي من ProjectConfig (تعريف بنيوي) وتُحقن كأنماط CSS
 $statusStyles = '';
@@ -59,7 +68,7 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
       <p><?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></p>
     </div>
 
-    <div class="alert hidden" id="login-error"></div>
+    <div class="alert" id="login-error" hidden></div>
 
     <div class="field">
       <label for="login-username">اسم المستخدم</label>
@@ -219,7 +228,7 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
             <label for="pw-confirm">تأكيد كلمة المرور</label>
             <input type="password" id="pw-confirm" autocomplete="new-password" minlength="8" required>
           </div>
-          <div class="alert hidden" id="password-error"></div>
+          <div class="alert" id="password-error" hidden></div>
           <div><button class="btn btn-primary" type="submit">تحديث كلمة المرور</button></div>
         </form>
       </div>

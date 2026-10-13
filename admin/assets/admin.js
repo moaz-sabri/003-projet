@@ -99,13 +99,26 @@
     return text;
   }
 
+  /**
+   * إظهار/إخفاء عنصر بأمان.
+   *
+   * ملاحظة مهمة: عناصر التنبيه في هذه اللوحة تحمل الصنف hidden في HTML،
+   * بينما تستخدم عناصر أخرى الخاصية hidden فقط. ضبط الاثنين معًا
+   * يمنع بقاء رسالة الخطأ مخفية (كان الخطأ يظهر ولا يُعرض إطلاقًا).
+   */
+  function setHidden(el, hidden) {
+    if (!el) return;
+    el.hidden = hidden;
+    el.classList.toggle('hidden', hidden);
+  }
+
   function toast(message, type) {
     var el = $('toast');
     el.textContent = message;
     el.style.background = type === 'error' ? 'var(--danger)' : 'var(--ink)';
-    el.hidden = false;
+    setHidden(el, false);
     clearTimeout(toast.timer);
-    toast.timer = setTimeout(function () { el.hidden = true; }, 3000);
+    toast.timer = setTimeout(function () { setHidden(el, true); }, 3000);
   }
 
   function confirmAction(message) {
@@ -131,7 +144,7 @@
     var btn = $('login-submit');
     btn.disabled = true;
     btn.textContent = 'جارٍ التحقق…';
-    $('login-error').hidden = true;
+    setHidden($('login-error'), true);
 
     api('admin.login', {
       method: 'POST',
@@ -143,7 +156,7 @@
       boot();
     }).catch(function (error) {
       $('login-error').textContent = error.message;
-      $('login-error').hidden = false;
+      setHidden($('login-error'), false);
     }).finally(function () {
       btn.disabled = false;
       btn.textContent = 'تسجيل الدخول';
@@ -800,13 +813,13 @@
   function changePassword(event) {
     event.preventDefault();
     var alert = $('password-error');
-    alert.hidden = true;
+    setHidden(alert, true);
 
     var current = $('pw-current').value;
     var next = $('pw-new').value;
     if (next !== $('pw-confirm').value) {
       alert.textContent = 'كلمتا المرور غير متطابقتين.';
-      alert.hidden = false;
+      setHidden(alert, false);
       return;
     }
 
@@ -817,7 +830,7 @@
       })
       .catch(function (error) {
         alert.textContent = error.message;
-        alert.hidden = false;
+        setHidden(alert, false);
       });
   }
 
