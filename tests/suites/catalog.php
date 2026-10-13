@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 use App\Config\ProjectConfig;
 use App\Core\Money;
+use App\Repositories\CategoryRepository;
+use App\Repositories\LocationRepository;
 use App\Repositories\ProductRepository;
 use App\Services\CatalogService;
 
@@ -148,4 +150,34 @@ return function (): void {
     Assert::true(in_array('cancelled', ProjectConfig::ORDER_STATUSES['new']['next'], true), 'الإلغاء حالة مستقلة');
     Assert::same([], ProjectConfig::ORDER_STATUSES['completed']['next'], 'المكتمل حالة نهائية');
     Assert::same([], ProjectConfig::ORDER_STATUSES['cancelled']['next'], 'الملغى حالة نهائية');
+
+    /* (8) الحقول الاختيارية الغائبة لا تُسبب 500 ------------------------- */
+    Assert::group('الحقول الاختيارية الغائبة');
+
+    $productRepo   = new ProductRepository();
+    $categoryRepo  = new CategoryRepository();
+    $locationRepo  = new LocationRepository();
+
+    // إنشاء منتج بحقول أقل من الحد الأدنى (كما لو حذفها عميل)
+    $slimId = $productRepo->create([
+        'name'        => 'منتج بحقول ناقصة',
+        'price_minor' => 5000,
+    ]);
+    Assert::greater($slimId, 0, 'إنشاء منتج بلا category_id أو وصف أو ترتيب');
+    Assert::same(null, $productRepo->find($slimId)['category_id'], 'المنتج بلا تصنيف يُحفظ كـ null');
+
+    $productRepo->update($slimId, ['name' => 'منتج محدَّث', 'price_minor' => 6000]);
+    Assert::same(6000, (int) $productRepo->find($slimId)['price_minor'], 'تحديث منتج بحقول ناقصة');
+
+    $slimCategory = $categoryRepo->create(['name' => 'تصنيف بحقول ناقصة']);
+    Assert::greater($slimCategory, 0, 'إنشاء تصنيف بالحد الأدنى من الحقول');
+
+    $slimLocation = $locationRepo->save(null, ['name' => 'موقع بحقول ناقصة']);
+    Assert::greater($slimLocation, 0, 'إنشاء موقع بالحد الأدنى من الحقول');
+    Assert::true($locationRepo->find($slimLocation)['code'] !== '', 'رمز الموقع يُولَّد تلقائيًا');
+
+    // تنظيف
+    $productRepo->delete($slimId);
+    $categoryRepo->delete($slimCategory);
+    $locationRepo->delete($slimLocation);
 };

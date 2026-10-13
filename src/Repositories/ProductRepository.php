@@ -64,10 +64,10 @@ final class ProductRepository
     public function create(array $data): int
     {
         return Database::insert('products', [
-            'category_id'  => $data['category_id'] ?: null,
-            'name'         => $data['name'],
+            'category_id'  => (int) ($data['category_id'] ?? 0) ?: null,
+            'name'         => (string) ($data['name'] ?? ''),
             'description'  => $data['description'] ?? '',
-            'price_minor'  => (int) $data['price_minor'],
+            'price_minor'  => (int) ($data['price_minor'] ?? 0),
             'image_path'   => $data['image_path'] ?? '',
             'extra_json'   => json_encode($data['extra'] ?? [], JSON_UNESCAPED_UNICODE),
             'is_available' => !empty($data['is_available']) ? 1 : 0,
@@ -81,10 +81,10 @@ final class ProductRepository
     public function update(int $id, array $data): void
     {
         Database::update('products', [
-            'category_id'  => $data['category_id'] ?: null,
-            'name'         => $data['name'],
+            'category_id'  => (int) ($data['category_id'] ?? 0) ?: null,
+            'name'         => (string) ($data['name'] ?? ''),
             'description'  => $data['description'] ?? '',
-            'price_minor'  => (int) $data['price_minor'],
+            'price_minor'  => (int) ($data['price_minor'] ?? 0),
             'image_path'   => $data['image_path'] ?? '',
             'extra_json'   => json_encode($data['extra'] ?? [], JSON_UNESCAPED_UNICODE),
             'is_available' => !empty($data['is_available']) ? 1 : 0,

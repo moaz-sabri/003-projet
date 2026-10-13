@@ -3,9 +3,10 @@
 
 set -e
 
-# امنح php-fpm الصلاحيات على مجلد التخزين
-chown -R www-data:www-data /var/www/html/storage 2>/dev/null || true
-chmod -R 775 /var/www/html/storage 2>/dev/null || true
+# امنح php-fpm الصلاحيات على مجلدات التخزين والرفع
+chown -R www-data:www-data /var/www/html/storage /var/www/html/app/uploads 2>/dev/null || true
+chmod -R 775 /var/www/html/storage /var/www/html/app/uploads 2>/dev/null || true
+mkdir -p /var/www/html/app/uploads/products 2>/dev/null || true
 
 if [ ! -f /var/www/html/storage/config/local.php ]; then
   echo ""

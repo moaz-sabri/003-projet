@@ -36,12 +36,17 @@ final class LocationRepository
 
     public function save(?int $id, array $data): int
     {
-        $code = strtoupper(trim((string) $data['code']));
+        $code = strtoupper(trim((string) ($data['code'] ?? '')));
+
+        // توليد الرمز داخل المستودع أيضًا (لا نعتمد على طبقة الـ API)
+        if ($code === '') {
+            $code = $this->suggestCode();
+        }
         if ($id === null) {
             $max = (int) Database::value('SELECT COALESCE(MAX(sort_order), 0) FROM locations');
             return Database::insert('locations', [
                 'code'       => $code,
-                'name'       => $data['name'],
+                'name'       => (string) ($data['name'] ?? ''),
                 'type'       => $data['type'] ?? '',
                 'note'       => $data['note'] ?? '',
                 'is_active'  => !empty($data['is_active']) ? 1 : 0,
@@ -53,11 +58,11 @@ final class LocationRepository
 
         Database::update('locations', [
             'code'       => $code,
-            'name'       => $data['name'],
+            'name'       => (string) ($data['name'] ?? ''),
             'type'       => $data['type'] ?? '',
             'note'       => $data['note'] ?? '',
             'is_active'  => !empty($data['is_active']) ? 1 : 0,
-            'sort_order' => (int) $data['sort_order'],
+            'sort_order' => (int) ($data['sort_order'] ?? 0),
             'updated_at' => date('Y-m-d H:i:s'),
         ], 'id = :id', ['id' => $id]);
 

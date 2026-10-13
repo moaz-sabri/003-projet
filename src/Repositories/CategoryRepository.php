@@ -30,7 +30,7 @@ final class CategoryRepository
     {
         $max = (int) Database::value('SELECT COALESCE(MAX(sort_order), 0) FROM categories');
         return Database::insert('categories', [
-            'name'        => $data['name'],
+            'name'        => (string) ($data['name'] ?? ''),
             'description' => $data['description'] ?? '',
             'image_path'  => $data['image_path'] ?? '',
             'sort_order'  => $data['sort_order'] ?? ($max + 10),
@@ -43,10 +43,10 @@ final class CategoryRepository
     public function update(int $id, array $data): void
     {
         Database::update('categories', [
-            'name'        => $data['name'],
+            'name'        => (string) ($data['name'] ?? ''),
             'description' => $data['description'] ?? '',
             'image_path'  => $data['image_path'] ?? '',
-            'sort_order'  => (int) $data['sort_order'],
+            'sort_order'  => (int) ($data['sort_order'] ?? 0),
             'is_active'   => !empty($data['is_active']) ? 1 : 0,
             'updated_at'  => date('Y-m-d H:i:s'),
         ], 'id = :id', ['id' => $id]);
