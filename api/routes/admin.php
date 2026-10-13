@@ -160,9 +160,10 @@ $validateCategory = static function (array $data): array {
       ->string('name', 'اسم التصنيف', 1, 80)
       ->string('description', 'الوصف', 0, 300)
       ->integer('sort_order', 'الترتيب', 0, 100000)
-      ->boolean('is_active')
-      ->throwIfFails();
-    return $v;
+      ->boolean('is_active');
+
+    // throwIfFails يرمي استثناءً عند وجود أخطاء، ويعيد المصفوفة المُنقّاة
+    return $v->throwIfFails();
 };
 
 $router->post('admin.category.create', function (Request $request) use ($body, $requireAdmin, $validateCategory): void {
@@ -224,10 +225,9 @@ $validateProduct = static function (array $data): array {
       ->integer('category_id', 'التصنيف', 0, PHP_INT_MAX)
       ->integer('sort_order', 'الترتيب', 0, 100000)
       ->boolean('is_available')
-      ->boolean('is_featured')
-      ->throwIfFails();
+      ->boolean('is_featured');
 
-    $out         = $v->validated();
+    $out = $v->throwIfFails();
     $rawPrice    = $out['price'] ?? '0';
     $out['price_minor'] = Money::parseToMinor(is_scalar($rawPrice) ? (string) $rawPrice : '0');
     if ($out['price_minor'] < 0) {

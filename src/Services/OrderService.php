@@ -47,7 +47,7 @@ final class OrderService
      */
     public function create(array $payload, ?Request $request = null): array
     {
-        if ($request !== null && !RateLimiter::hitPublicApi($request, 'order.create', 20)) {
+        if ($request !== null && !RateLimiter::hitPublicApi($request, 'order.create', ProjectConfig::ORDER_RATE_LIMIT_PER_MINUTE)) {
             throw new HttpError('too_many_requests', 'طلبات كثيرة خلال وقت قصير. انتظر قليلًا ثم أعد المحاولة.', 429);
         }
 

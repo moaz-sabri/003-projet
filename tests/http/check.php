@@ -25,27 +25,39 @@ $fail = 0;
  */
 function req(string $url, ?array $body = null, array $headers = []): array
 {
-    $context = stream_context_create(['http' => [
-        'method'        => $body === null ? 'GET' : 'POST',
-        'header'        => implode("\r\n", array_merge(['Content-Type: application/json'], $headers)),
-        'content'       => $body === null ? '' : json_encode($body, JSON_UNESCAPED_UNICODE),
-        'timeout'       => 20,
-        'ignore_errors' => true,
-    ]]);
+    $attempt = static function () use ($url, $body, $headers): array {
+        $context = stream_context_create(['http' => [
+            'method'        => $body === null ? 'GET' : 'POST',
+            'header'        => implode("\r\n", array_merge(['Content-Type: application/json'], $headers)),
+            'content'       => $body === null ? '' : json_encode($body, JSON_UNESCAPED_UNICODE),
+            'timeout'       => 20,
+            'ignore_errors' => true,
+        ]]);
 
-    $raw    = (string) @file_get_contents($url, false, $context);
-    $status = 0;
-    $headers = [];
-    foreach ($http_response_header ?? [] as $line) {
-        if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m)) {
-            $status = (int) $m[1];
+        $raw    = (string) @file_get_contents($url, false, $context);
+        $status = 0;
+        $responseHeaders = [];
+        foreach ($http_response_header ?? [] as $line) {
+            if (preg_match('#^HTTP/\S+\s+(\d{3})#', $line, $m)) {
+                $status = (int) $m[1];
+            }
+            $parts = explode(':', $line, 2);
+            if (count($parts) === 2) {
+                $responseHeaders[strtolower(trim($parts[0]))] = trim($parts[1]);
+            }
         }
-        $parts = explode(':', $line, 2);
-        if (count($parts) === 2) {
-            $headers[strtolower(trim($parts[0]))] = trim($parts[1]);
-        }
+        return ['status' => $status, 'json' => json_decode($raw, true), 'raw' => $raw, 'headers' => $responseHeaders];
+    };
+
+    $result = $attempt();
+
+    // حد الطلبات قد يتفعّل أثناء الفحص المتكرر — ننتظر ونعيد المحاولة مرة واحدة
+    if ($result['status'] === 429) {
+        sleep(3);
+        $result = $attempt();
     }
-    return ['status' => $status, 'json' => json_decode($raw, true), 'raw' => $raw, 'headers' => $headers];
+
+    return $result;
 }
 
 function check(string $label, bool $ok, string $detail = ''): void
