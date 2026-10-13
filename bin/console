@@ -207,7 +207,8 @@ switch ($command) {
         require_once BASE_PATH . '/src/bootstrap.php';
         $db = \App\Core\Database::pdo();
         $say('PHP: ' . PHP_VERSION);
-        $say('الإصدار: ' . (\App\Config\ProjectConfig::BUSINESS_TYPE));
+        $say('إصدار القالب: ' . \App\Config\ProjectConfig::VERSION);
+        $say('نوع النشاط: ' . (\App\Config\ProjectConfig::BUSINESS_TYPE));
         $say('قاعدة البيانات: ' . app_config('db.path', '?'));
         foreach (['products', 'categories', 'locations', 'orders'] as $table) {
             $count = (int) \App\Core\Database::value("SELECT COUNT(*) FROM $table");

@@ -39,14 +39,21 @@ $configDir = sys_get_temp_dir() . '/lc-test-config-' . getmypid();
 $configFile = $configDir . '/local.php';
 file_put_contents($configFile, "<?php\nreturn " . var_export($config, true) . ";\n");
 
-// نضع ملف الإعدادات مؤقتًا في مكان المتوقّع حتى يعمل bootstrap كما في الإنتاج
-$realConfig = BASE_PATH . '/storage/config/local.php';
-$realExists = is_file($realConfig);
-if ($realExists) {
-    copy($realConfig, $configFile . '.backup');
-    @unlink($realConfig);
-}
-copy($configFile, $realConfig);
+/**
+ * تنظيف يُنفَّذ مهما كان سبب انتهاء التشغيل (عادي أو استثناء أو خطأ قاتل).
+ *
+ * ملاحظة أمنية مهمة: عبر متغير البيئة LC_CONFIG_FILE نوجّه التطبيق إلى ملف
+ * إعدادات مؤقت، فلا نكتب فوق storage/config/local.php ولا نغيّر بيانات
+ * دخول النسخة الحقيقية إطلاقًا.
+ */
+$cleanup = static function () use ($testDb, $configFile, $configDir): void {
+    @unlink($testDb);
+    @unlink($configFile);
+    @rmdir($configDir);
+};
+register_shutdown_function($cleanup);
+
+putenv('LC_CONFIG_FILE=' . $configFile);
 
 require BASE_PATH . '/src/bootstrap.php';
 require BASE_PATH . '/tests/Assert.php';
@@ -105,13 +112,7 @@ echo "  الوقت: " . round((microtime(true) - APP_START) * 1000) . " ميلي
 echo str_repeat('─', 62) . "\n";
 
 // تنظيف: نستعيد إعداد النسخة الحقيقية أولًا، ثم نحذف ملف الاختبار
-if ($realExists && is_file($configFile . '.backup')) {
-    copy($configFile . '.backup', $realConfig);
-}
-
-@unlink($testDb);
-@unlink($configFile);
-@unlink($configFile . '.backup');
-@rmdir($configDir);
+// التنظيف تلقائي عبر register_shutdown_function (حتى مع الاستثناءات)
+$cleanup();
 
 exit(Assert::$failed === 0 ? 0 : 1);

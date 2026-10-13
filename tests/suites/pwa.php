@@ -77,6 +77,23 @@ return function (): void {
     Assert::contains($sw, 'Promise.allSettled', 'كل ملف يُخزَّن على حدة مع تجاهل الفشل');
     Assert::contains($sw, 'async function precache()', 'دالة تخزين مسبق مرنة');
 
+    /* (1.1) اتساق رقم النسخة -------------------------------------------
+       رقم النسخة معرّف في ProjectConfig، ويجب أن يطابق سمة الاستبدال
+       في صفحة التطبيق وثابت VERSION في عامل الخدمة.                     */
+    Assert::group('اتساق رقم النسخة');
+
+    Assert::same('1.0.0', ProjectConfig::VERSION, 'رقم إصدار القالب');
+
+    $configSource = (string) file_get_contents(BASE_PATH . '/src/Config/ProjectConfig.php');
+    preg_match("/const VERSION = '([^']+)'/", $configSource, $cfgVersion);
+    Assert::same('1.0.0', $cfgVersion[1] ?? '', 'رقم النسخة معرّف في ProjectConfig');
+
+    $appHtmlSource = (string) file_get_contents(BASE_PATH . '/app/index.html');
+    Assert::contains($appHtmlSource, 'app.css?v=1.0.0', 'صفحة التطبيق تحمل رقم النسخة');
+
+    preg_match("/const VERSION = 'v?([^']+)'/", $sw, $swVersion);
+    Assert::same('1.0.0', $swVersion[1] ?? '', 'عامل الخدمة يحمل رقم النسخة');
+
     // لا طابور إرسال دون اتصال
     Assert::false(str_contains($sw, 'Background Sync'), 'لا يوجد طابور مزامنة للطلبات');
     Assert::false(str_contains($sw, "addEventListener('sync'"), 'لا مستمع لمزامنة الطلبات');

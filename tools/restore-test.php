@@ -37,6 +37,10 @@ echo "اختبار النسخ الاحتياطي والاستعادة\n" . str_r
 
 $service = new BackupService();
 
+// تنظيف بقايا تشغيل سابق (الاختبار يجب أن يكون قابلًا للتكرار)
+Database::delete('products', "name = 'منتج قبل النسخة' OR name = 'منتج بعد النسخة'");
+Database::delete('locations', "name = 'موقع اختبار النسخة'");
+
 /* ---------------------- 1. بيانات قبل النسخة ---------------------- */
 $beforeCount = (int) Database::value('SELECT COUNT(*) FROM products');
 Database::insert('products', [
@@ -47,6 +51,34 @@ Database::insert('products', [
     'updated_at'   => Database::now(),
 ]);
 $markerBefore = (int) Database::value("SELECT id FROM products WHERE name = 'منتج قبل النسخة'");
+
+// نُنشئ طلبًا حقيقيًا حتى يتحقق الفحص من أن الطلبات تُنسخ فعلًا
+// (بدون ذلك يعتمد الفحص على وجود طلبات سابقة في القاعدة)
+$orderRepo = new \App\Repositories\OrderRepository();
+$locationId = (int) Database::value("SELECT id FROM locations WHERE is_active = 1 ORDER BY id LIMIT 1");
+if ($locationId === 0) {
+    $locationId = (int) Database::insert('locations', [
+        'name'       => 'موقع اختبار النسخة',
+        'code'       => 'BKUP' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
+        'is_active'  => 1,
+        'sort_order' => 0,
+        'created_at' => Database::now(),
+        'updated_at' => Database::now(),
+    ]);
+}
+$orderId = 0;
+try {
+    $order = (new \App\Services\OrderService())->create([
+        'order_type'    => 'takeaway',
+        'customer_name' => 'زبون النسخة',
+        'location_id'   => $locationId,
+        'items'         => [['product_id' => $markerBefore, 'quantity' => 1]],
+    ]);
+    $orderId = (int) $order['id'];
+} catch (Throwable $e) {
+    echo "  ⚠ تعذّر إنشاء طلب للاختبار: " . $e->getMessage() . "\n";
+}
+check('طلب تجريبي أُنشئ قبل النسخة', $orderId > 0, 'id=' . $orderId);
 
 /* --------------------------- 2. النسخ --------------------------- */
 $backupPath = $service->create();
@@ -91,6 +123,16 @@ $ordersInBackup = (int) $verify->query('SELECT COUNT(*) FROM orders')->fetchColu
 $ordersLive     = (int) Database::value('SELECT COUNT(*) FROM orders');
 check('الطلبات محفوظة في النسخة', $ordersInBackup > 0 && $ordersInBackup <= $ordersLive,
     'في النسخة=' . $ordersInBackup . ' الحي=' . $ordersLive);
+
+$orderStmt = $verify->prepare('SELECT COUNT(*) FROM orders WHERE id = :id');
+$orderStmt->execute(['id' => $orderId]);
+$orderInBackup = (int) $orderStmt->fetchColumn();
+check('الطلب المُنشأ قبل النسخة موجود فيها', $orderInBackup === 1);
+
+$itemStmt = $verify->prepare('SELECT COUNT(*) FROM order_items WHERE order_id = :id');
+$itemStmt->execute(['id' => $orderId]);
+$itemsInBackup = (int) $itemStmt->fetchColumn();
+check('عناصر الطلب محفوظة في النسخة', $itemsInBackup === 1);
 
 /* --------------------- 5. قيود السلامة في السجل --------------------- */
 $orphanItems = (int) $verify->query(

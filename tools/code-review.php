@@ -238,6 +238,35 @@ $debugDefault = str_contains(
 );
 review('وضع التصحيح معطّل عند التثبيت افتراضيًا', $debugDefault);
 
+/* ================== ٦. عدوانية الاختبارات تجاه بيانات النسخة ================== */
+section('٦. الاختبارات لا تمسّ بيانات النسخة الحقيقية');
+
+$runner = (string) file_get_contents($root . '/tests/run.php');
+
+// خطأ سابق: كان مشغّل الاختبارات يستبدل storage/config/local.php ببيانات
+// دخول اختبارية، فإن توقّف التشغيل في المنتصف لبقي حساب المدير = tester.
+review(
+    'المشغّل لا يستبدل ملف إعدادات النسخة',
+    !str_contains($runner, "@unlink(\$realConfig)") && !str_contains($runner, "copy(\$configFile, \$realConfig)"),
+    'لا يزال يكتب فوق storage/config/local.php'
+);
+review(
+    'المشغّل يوجّه الإعدادات عبر متغير البيئة',
+    str_contains($runner, "putenv('LC_CONFIG_FILE="),
+    'لا يوجد توجيه عبر LC_CONFIG_FILE'
+);
+review(
+    'التنظيف يسجَّل قبل أي تنفيذ (حتى مع الاستثناءات)',
+    str_contains($runner, 'register_shutdown_function($cleanup)'),
+    'لا يوجد register_shutdown_function'
+);
+
+$autoloader = (string) file_get_contents($root . '/src/Core/Autoloader.php');
+review(
+    'التطبيق يدعم تجاوز مسار الإعدادات',
+    str_contains($autoloader, 'function app_config_file()') && str_contains($autoloader, 'LC_CONFIG_FILE')
+);
+
 echo "\n" . str_repeat('─', 62) . "\n";
 echo "نجح: $pass — يحتاج انتباه: $fail\n";
 foreach ($notes as $note) {

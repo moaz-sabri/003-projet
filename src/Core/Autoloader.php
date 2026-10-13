@@ -26,7 +26,25 @@ spl_autoload_register(static function (string $class): void {
 date_default_timezone_set(App\Config\ProjectConfig::TIMEZONE);
 mb_internal_encoding('UTF-8');
 
-if (!is_file(BASE_PATH . '/storage/config/local.php')) {
+/**
+ * مسار ملف الإعدادات المحلي.
+ *
+ * يمكن تجاوزه بمتغير البيئة LC_CONFIG_FILE — تستخدمه الاختبارات لتوجيه
+ * بيانات دخول مؤقتة إلى مجلد مؤقت، فلا تُلمس بيانات الدخول الحقيقية إطلاقًا.
+ */
+function app_config_file(): string
+{
+    $override = getenv('LC_CONFIG_FILE');
+    if (is_string($override) && $override !== '' && is_file($override)) {
+        return $override;
+    }
+
+    return BASE_PATH . '/storage/config/local.php';
+}
+
+$appConfigFile = app_config_file();
+
+if (!is_file($appConfigFile)) {
     if (PHP_SAPI !== 'cli') {
         // توجيه إلى معالج التهيئة بدل أي خطأ غامض
         if (!headers_sent()) {
@@ -38,7 +56,7 @@ if (!is_file(BASE_PATH . '/storage/config/local.php')) {
         exit;
     }
 } else {
-    require_once BASE_PATH . '/storage/config/local.php';
+    require_once $appConfigFile;
 }
 
 /** إعدادات التشغيل المحلية (أسرار ومسارات) — لا تُوضع في أي ملف عام. */
@@ -46,7 +64,7 @@ function app_config(?string $key = null, mixed $default = null): mixed
 {
     static $config = null;
     if ($config === null) {
-        $file = BASE_PATH . '/storage/config/local.php';
+        $file = app_config_file();
         $config = is_file($file) ? require $file : [];
     }
     if ($key === null) {
