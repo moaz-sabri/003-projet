@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="قائمة رقمية وطلبات مباشرة">
+  <title>القائمة</title>
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="القائمة">
+
+  <link rel="stylesheet" href="css/app.css?v=1.0.1">
+</head>
+<body>
+
+<!-- شريط الحالة أسفل الشاشة -->
+<div class="banner" id="offline-banner" hidden>
+  <span class="banner-icon" aria-hidden="true">⚠</span>
+  <span class="banner-text">لا يوجد اتصال — تتصفح نسخة محفوظة من القائمة. الطلب متوقف مؤقتًا.</span>
+</div>
+
+<header class="app-header" id="app-header">
+  <div class="header-inner">
+    <div class="brand">
+      <img class="brand-logo" id="brand-logo" alt="" hidden>
+      <div class="brand-text">
+        <h1 class="brand-name" id="brand-name">القائمة</h1>
+        <p class="brand-tagline" id="brand-tagline" hidden></p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <span class="loc-chip" id="loc-chip" hidden>
+        <span class="loc-dot" aria-hidden="true"></span>
+        <span id="loc-chip-text"></span>
+        <button class="loc-clear" id="loc-clear" type="button" aria-label="تغيير الموقع">×</button>
+      </span>
+
+      <button class="cart-button" id="cart-button" type="button" aria-label="السلة">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6"/>
+          <circle cx="10" cy="20" r="1.4" fill="currentColor"/>
+          <circle cx="18" cy="20" r="1.4" fill="currentColor"/>
+        </svg>
+        <span class="cart-count" id="cart-count" hidden>0</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="header-nav" id="header-nav" hidden>
+    <div class="search-wrap" id="search-wrap">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <input type="search" id="search-input" placeholder="ابحث في القائمة…" autocomplete="off" enterkeyhint="search">
+    </div>
+    <nav class="tabs" id="category-tabs" aria-label="التصنيفات"></nav>
+  </div>
+</header>
+
+<main class="content" id="content">
+  <!-- شاشة الترحيب -->
+  <section class="welcome" id="view-welcome" hidden>
+    <div class="welcome-card">
+      <div class="welcome-emoji" aria-hidden="true">👋</div>
+      <h2 class="welcome-title" id="welcome-title">أهلًا بك</h2>
+      <p class="welcome-text" id="welcome-text"></p>
+      <button class="btn btn-primary btn-lg" id="welcome-action" type="button">تصفح القائمة</button>
+    </div>
+  </section>
+
+  <!-- شاشة المنتجات -->
+  <section class="view" id="view-menu">
+    <div class="notice hidden" id="menu-notice"></div>
+    <div class="product-grid" id="product-grid"></div>
+    <p class="empty-state" id="menu-empty" hidden></p>
+  </section>
+
+  <!-- شاشة السلة -->
+  <section class="view" id="view-cart" hidden>
+    <div class="view-head">
+      <h2 class="view-title">السلة</h2>
+      <button class="btn btn-ghost" id="clear-cart" type="button">إفراغ السلة</button>
+    </div>
+    <div class="cart-list" id="cart-list"></div>
+    <p class="empty-state" id="cart-empty" hidden>سلتك فارغة.</p>
+    <div class="cart-summary" id="cart-summary" hidden>
+      <div class="summary-row"><span>المجموع الفرعي</span><span id="cart-subtotal">0</span></div>
+      <div class="summary-note">يتم تأكيد الأسعار على الخادم عند الإرسال.</div>
+      <button class="btn btn-primary btn-lg btn-block" id="to-checkout" type="button">متابعة إتمام الطلب</button>
+    </div>
+  </section>
+
+  <!-- شاشة إتمام الطلب -->
+  <section class="view" id="view-checkout" hidden>
+    <div class="view-head">
+      <button class="icon-btn" id="checkout-back" type="button" aria-label="رجوع">→</button>
+      <h2 class="view-title">إتمام الطلب</h2>
+    </div>
+
+    <form id="checkout-form" novalidate>
+      <div class="card">
+        <h3 class="card-title">بيانات أساسية</h3>
+
+        <div class="field" id="field-name">
+          <label for="customer-name" id="label-customer-name">اسمك</label>
+          <input type="text" id="customer-name" name="customer_name" required maxlength="60" autocomplete="name" enterkeyhint="next">
+          <small class="field-error" data-error-for="customer_name"></small>
+        </div>
+
+        <div class="field" id="field-type" hidden>
+          <span class="field-label">نوع الطلب</span>
+          <div class="choice-row" id="order-type-choices"></div>
+          <small class="field-error" data-error-for="order_type"></small>
+        </div>
+
+        <div class="field" id="field-location" hidden>
+          <span class="field-label" id="label-location">اختر الموقع</span>
+          <select id="location-select"></select>
+          <small class="field-error" data-error-for="location"></small>
+        </div>
+
+        <div id="dynamic-fields"></div>
+      </div>
+
+      <div class="card">
+        <div class="summary-row summary-total"><span>الإجمالي</span><span id="checkout-total">0</span></div>
+      </div>
+
+      <div class="alert hidden" id="checkout-error"></div>
+
+      <button class="btn btn-primary btn-lg btn-block" id="submit-order" type="submit">تأكيد الطلب</button>
+      <p class="footnote">لا يُعرض تأكيد الطلب إلا بعد حفظه بنجاح على الخادم.</p>
+    </form>
+  </section>
+
+  <!-- شاشة تأكيد الطلب -->
+  <section class="view" id="view-success" hidden>
+    <div class="success-card">
+      <div class="success-badge" aria-hidden="true">✓</div>
+      <h2 class="success-title">تم استلام طلبك</h2>
+      <p class="success-number">رقم الطلب: <strong id="success-number">—</strong></p>
+      <div class="success-details" id="success-details"></div>
+      <div class="success-actions">
+        <button class="btn btn-primary btn-block" id="success-new-order" type="button">طلب جديد</button>
+        <a class="btn btn-ghost btn-block" id="success-track" href="#" hidden>متابعة الطلب</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- شاشة متابعة الطلب -->
+  <section class="view" id="view-track" hidden>
+    <div class="track-card">
+      <div class="track-head">
+        <h2 class="view-title">متابعة الطلب</h2>
+        <span class="status-pill" id="track-status">—</span>
+      </div>
+      <p class="track-number">رقم الطلب: <strong id="track-number">—</strong></p>
+      <div class="track-meta" id="track-meta"></div>
+      <ul class="track-items" id="track-items"></ul>
+      <div class="summary-row summary-total"><span>الإجمالي</span><span id="track-total">0</span></div>
+      <div class="alert hidden" id="track-error"></div>
+      <button class="btn btn-ghost btn-block" id="track-refresh" type="button">تحديث الحالة</button>
+    </div>
+  </section>
+</main>
+
+<!-- تفاصيل المنتج -->
+<div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+<aside class="sheet" id="product-sheet" hidden aria-modal="true" role="dialog" aria-label="تفاصيل المنتج">
+  <div class="sheet-handle" aria-hidden="true"></div>
+  <button class="sheet-close" id="sheet-close" type="button" aria-label="إغلاق">×</button>
+  <div class="sheet-body" id="sheet-body"></div>
+  <div class="sheet-footer" id="sheet-footer" hidden>
+    <div class="stepper">
+      <button type="button" class="step-btn" data-step="-1" aria-label="إنقاص">−</button>
+      <span class="step-value" id="sheet-qty">1</span>
+      <button type="button" class="step-btn" data-step="1" aria-label="زيادة">+</button>
+    </div>
+    <button class="btn btn-primary" id="sheet-add" type="button">أضف إلى السلة</button>
+  </div>
+</aside>
+
+<!-- زر الإضافة السريع للسلة العائم -->
+<div class="toast" id="toast" hidden></div>
+
+<footer class="app-footer" id="app-footer" hidden>
+  <span id="footer-contact"></span>
+</footer>
+
+<script src="js/api.js"></script>
+<script src="js/store.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# =============================================================================
+# منع الوصول إلى كل شيء داخل مجلد storage (قاعدة البيانات، الإعدادات،
+# النسخ الاحتياطية، السجلات). هذا الملف يمنع أيضًا تنفيذ أي سكربت.
+# =============================================================================
+
+# Apache 2.4+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+# Apache 2.2
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
+
+# منع تنفيذ أي ملف قابل للتنفيذ (حماية إضافية)
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .php8 .phps .cgi .pl .py .sh
+RemoveType .php .phtml .php3 .php4 .php5 .php7 .php8
+AddType text/plain .php .phtml .phps
+
+<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|db|log|ini|json|php)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

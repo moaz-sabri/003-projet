@@ -1,0 +1,24 @@
+# =============================================================================
+# services:
+#   app      — بيئة تطوير/تجربة كاملة (nginx + php-fpm على منفذ 8080)
+#
+# للإنتاج: ارفع مجلدات المشروع إلى استضافة PHP عادية — لا حاجة إلى Docker.
+# =============================================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: light-commerce
+    ports:
+      - "8080:80"
+    volumes:
+      # تُحفظ البيانات خارج الصورة لتبقى بعد إعادة البناء
+      - ./storage:/var/www/html/storage
+      - ./app/uploads:/var/www/html/app/uploads
+    environment:
+      TZ: Asia/Beirut
+    restart: unless-stopped
+    stdin_open: true
+    tty: true

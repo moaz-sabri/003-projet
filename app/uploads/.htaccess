@@ -1,0 +1,33 @@
+# =============================================================================
+# مجلد الصور العامة: يُسمح بعرض الصور فقط، ويُمنع تنفيذ أي سكربت.
+# =============================================================================
+
+Options -Indexes
+
+<FilesMatch "\.(php|phtml|php3|php4|php5|php7|php8|phps|cgi|pl|py|sh|htaccess)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# امنع المحرك من تنفيذ أي شيء هنا (حماية في حال رفع ملف خبيث)
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .php8 .phps
+
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set Cache-Control "public, max-age=31536000, immutable"
+</IfModule>
+
+# منع الوصول إلى الملفات المخفية
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>

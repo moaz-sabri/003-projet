@@ -1,0 +1,249 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * أداة سطر الأوامر للتهيئة والصيانة.
+ *
+ *   php bin/console install --url=https://site.com --user=admin --pass=secret
+ *   php bin/console migrate
+ *   php bin/console migrate:fresh
+ *   php bin/console admin:password
+ *   php bin/console backup
+ *   php bin/console icons
+ *   php bin/console qr "نص" --out=file.svg
+ *   php bin/console status
+ */
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit("أداة سطر الأوامر تعمل من الطرفية فقط.\n");
+}
+
+$autoloadOnly = true;
+require __DIR__ . '/../src/Core/Autoloader.php';
+
+$args = array_slice($argv, 1);
+$command = $args[0] ?? 'help';
+
+$options = [];
+foreach (array_slice($args, 1) as $arg) {
+    if (str_starts_with($arg, '--')) {
+        $pair = explode('=', substr($arg, 2), 2);
+        $options[$pair[0]] = $pair[1] ?? true;
+    }
+}
+
+$say = static function (string $message, string $type = 'info'): void {
+    $color = ['info' => "\033[36m", 'ok' => "\033[32m", 'warn' => "\033[33m", 'err' => "\033[31m"][$type] ?? '';
+    fwrite(STDOUT, $color . $message . "\033[0m\n");
+};
+
+/* ------------------------------------------------------------------
+ * تهيئة أولية (لا تحتاج bootstrap لأنها تُنشئ ملف الإعدادات)
+ * ------------------------------------------------------------------ */
+
+$writeLocalConfig = static function (array $config) use ($say): void {
+    $dir = BASE_PATH . '/storage/config';
+    if (!is_dir($dir)) {
+        mkdir($dir, 0775, true);
+    }
+    $php = "<?php\n"
+         . "// إعدادات محلية للنسخة — لا ترفع هذا الملف إلى أي مستودع ولا تخدمه عبر الويب.\n"
+         . "// إن نُشر على خادم عام، غيّر الصلاحيات وتأكد أن .htaccess يمنع الوصول المباشر.\n"
+         . "return " . var_export($config, true) . ";\n";
+    file_put_contents($dir . '/local.php', $php, LOCK_EX);
+    \App\Core\StorageWriter::fixOwnership($dir . '/local.php', 0640);
+};
+
+$ensureInstalled = static function () use ($say): void {
+    if (!is_file(BASE_PATH . '/storage/config/local.php')) {
+        $say('النسخة غير مهيأة بعد. شغّل: php bin/console install', 'err');
+        exit(1);
+    }
+};
+
+switch ($command) {
+    /* ------------------------- تهيئة النسخة ------------------------- */
+    case 'install': {
+        if (is_file(BASE_PATH . '/storage/config/local.php') && empty($options['force'])) {
+            $say('النسخة مهيأة مسبقًا. استخدم --force لإعادة التهيئة (سيُحذف ملف الإعدادات).', 'warn');
+            exit(1);
+        }
+
+        $url  = rtrim((string) ($options['url'] ?? ''), '/');
+        $user = (string) ($options['user'] ?? 'admin');
+        $pass = (string) ($options['pass'] ?? '');
+
+        if ($url === '') {
+            $url = rtrim((string) (getcwd() ?: ''), '/');
+        }
+        if ($pass === '') {
+            $pass = bin2hex(random_bytes(4));
+            $say('لم تُحدَّد كلمة مرور — تم توليد واحدة: ' . $pass, 'warn');
+        }
+        if (mb_strlen($pass) < 8) {
+            $say('كلمة المرور يجب ألا تقل عن 8 محارف.', 'err');
+            exit(1);
+        }
+
+        $writeLocalConfig([
+            'installed_at' => date('c'),
+            'debug'        => false,
+            'app_key'      => bin2hex(random_bytes(16)),
+            'app'          => ['base_url' => $url],
+            'db'           => ['path' => BASE_PATH . '/storage/database/app.sqlite'],
+            'admin'        => [
+                'username'      => $user,
+                'password_hash' => password_hash($pass, PASSWORD_DEFAULT),
+                'updated_at'    => date('c'),
+            ],
+        ]);
+
+        require_once BASE_PATH . '/src/bootstrap.php';
+        \App\Core\Migrations::migrate();
+
+        foreach (['uploads', 'backups', 'logs', 'tmp'] as $folder) {
+            $path = BASE_PATH . '/storage/' . $folder;
+            if (!is_dir($path)) {
+                mkdir($path, 0775, true);
+            }
+        }
+
+        // في الحاويات قد يكون التنفيذ بحساب root — نضبط الملكية ليستخدمها خادم الويب
+        \App\Core\StorageWriter::fixTree(BASE_PATH . '/storage');
+        \App\Core\StorageWriter::fixOwnership(BASE_PATH . '/storage/config/local.php', 0640);
+
+        $say('تمت تهيئة النسخة بنجاح.', 'ok');
+        $say('رابط الموقع : ' . $url);
+        $say('لوحة الإدارة : ' . $url . '/admin/');
+        $say('اسم المستخدم: ' . $user);
+        exit(0);
+    }
+
+    /* -------------------------- الصيانة -------------------------- */
+    case 'migrate': {
+        $ensureInstalled();
+        require_once BASE_PATH . '/src/bootstrap.php';
+        \App\Core\Migrations::migrate();
+        $say('تم تحديث المخطط.', 'ok');
+        exit(0);
+    }
+
+    case 'migrate:fresh': {
+        $ensureInstalled();
+        require_once BASE_PATH . '/src/bootstrap.php';
+        \App\Core\Migrations::reset();
+        $say('تمت إعادة إنشاء قاعدة البيانات (كل البيانات حُذفت).', 'warn');
+        exit(0);
+    }
+
+    case 'admin:password': {
+        $ensureInstalled();
+        require_once BASE_PATH . '/src/bootstrap.php';
+        $new = (string) ($options['pass'] ?? '');
+        if ($new === '') {
+            $new = bin2hex(random_bytes(4));
+            $say('كلمة مرور جديدة (مولّدة): ' . $new, 'warn');
+        }
+        if (mb_strlen($new) < 8) {
+            $say('كلمة المرور قصيرة جدًا.', 'err');
+            exit(1);
+        }
+        $file = BASE_PATH . '/storage/config/local.php';
+        $config = require $file;
+        $config['admin']['password_hash'] = password_hash($new, PASSWORD_DEFAULT);
+        $config['admin']['updated_at'] = date('c');
+        $writeLocalConfig($config);
+        $say('تم تحديث كلمة مرور المدير.', 'ok');
+        exit(0);
+    }
+
+    case 'backup': {
+        $ensureInstalled();
+        require_once BASE_PATH . '/src/bootstrap.php';
+        $service = new \App\Services\BackupService();
+        $path = $service->create();
+        $say('تم إنشاء نسخة احتياطية: ' . basename($path), 'ok');
+        exit(0);
+    }
+
+    /* -------------------------- الأيقونات -------------------------- */
+    case 'icons': {
+        require_once BASE_PATH . '/src/Tools/IconGenerator.php';
+        $result = \App\Tools\IconGenerator::generateAll();
+        foreach ($result as $file) {
+            $say('تم إنشاء: ' . $file, 'ok');
+        }
+        exit(0);
+    }
+
+    /* -------------------------- رمز QR -------------------------- */
+    case 'qr': {
+        require_once BASE_PATH . '/src/Core/Autoloader.php';
+        $text = (string) ($options['text'] ?? '');
+        if ($text === '' && isset($args[1]) && !str_starts_with($args[1], '--')) {
+            $text = $args[1];
+        }
+        if ($text === '') {
+            $say('الاستخدام: php bin/console qr "النص" --out=file.svg', 'warn');
+            exit(1);
+        }
+        $qr  = new \App\Core\Qr\QrCode((string) ($options['ecc'] ?? 'M'));
+        $svg = $qr->svg($text, (int) ($options['size'] ?? 8));
+        $out = (string) ($options['out'] ?? '');
+        if ($out === '') {
+            echo $svg;
+        } else {
+            file_put_contents($out, $svg);
+            $say('تم حفظ الرمز في ' . $out, 'ok');
+        }
+        exit(0);
+    }
+
+    /* -------------------------- الحالة -------------------------- */
+    case 'status': {
+        $ensureInstalled();
+        require_once BASE_PATH . '/src/bootstrap.php';
+        $db = \App\Core\Database::pdo();
+        $say('PHP: ' . PHP_VERSION);
+        $say('الإصدار: ' . (\App\Config\ProjectConfig::BUSINESS_TYPE));
+        $say('قاعدة البيانات: ' . app_config('db.path', '?'));
+        foreach (['products', 'categories', 'locations', 'orders'] as $table) {
+            $count = (int) \App\Core\Database::value("SELECT COUNT(*) FROM $table");
+            $say(str_pad($table, 12) . ': ' . $count);
+        }
+        $version = \App\Core\Database::value('SELECT value FROM app_meta WHERE key = :k', ['k' => 'schema_version']);
+        $say('مخطط قاعدة البيانات: ' . ($version ?: '؟'));
+        $say('الإعدادات: ' . (is_writable(BASE_PATH . '/storage') ? 'قابلة للكتابة' : 'غير قابلة للكتابة'), is_writable(BASE_PATH . '/storage') ? 'ok' : 'err');
+        exit(0);
+    }
+
+    /* -------------------------- بيانات تجريبية -------------------------- */
+    case 'seed:demo': {
+        $ensureInstalled();
+        require_once BASE_PATH . '/src/bootstrap.php';
+        require BASE_PATH . '/src/Tools/DemoSeeder.php';
+        $count = \App\Tools\DemoSeeder::run();
+        $say('تمت إضافة بيانات تجريبية (' . $count . ' منتج). احذفها قبل الإطلاق الحقيقي.', 'warn');
+        exit(0);
+    }
+
+    default:
+        echo <<<TXT
+        أداة القالب التجاري الخفيف
+
+        الأوامر المتاحة:
+          install --url=... --user=... --pass=...   تهيئة النسخة لأول مرة
+          migrate                                   تحديث مخطط قاعدة البيانات
+          migrate:fresh                             حذف كل البيانات وإعادة الإنشاء
+          admin:password --pass=...                 تعيين كلمة مرور المدير
+          backup                                    إنشاء نسخة احتياطية
+          icons                                     توليد أيقونات PWA
+          qr "نص" --out=file.svg                    توليد رمز QR كـ SVG
+          seed:demo                                 إضافة بيانات تجريبية
+          status                                    عرض حالة النسخة
+
+        TXT;
+        exit($command === 'help' ? 0 : 1);
+}
