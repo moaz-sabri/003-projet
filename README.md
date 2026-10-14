@@ -394,7 +394,7 @@ php tests/run.php                                           تشغيل الاخ�
 
 ```bash
 php tests/run.php                              # 236 اختبار وحدة وتكامل
-php tests/http/check.php <url>                 # 32 فحص نشر على نسخة منشورة
+php tests/http/check.php <url>                 # 36 فحص نشر على نسخة منشورة
 php tools/workflow-test.php <url>              # 67 خطوة سير عمل كامل (يحفظ كوكي)
 php tools/security-probe.php <url>             # 49 فحصًا أمنيًا حيًّا
 php tools/code-review.php                      # 25 مراجعة كود وأداء وقاعدة بيانات

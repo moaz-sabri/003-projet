@@ -87,6 +87,26 @@ check('واجهة الزبون تُقدَّم', $home['status'] === 200, 'status
 check('الواجهة عربية واتجاه RTL', str_contains($home['raw'], 'dir="rtl"'));
 check('الواجهة تربط ملف manifest', str_contains($home['raw'], 'manifest.webmanifest'));
 
+// خطأ سابق: nginx كان يخدم app/index.html على الجذر / داخليًا، فتُحل
+// المسارات النسبية (js/app.js) إلى /js/app.js وتفشل. الحل إعادة توجيه.
+$rootResponse = req($base . '/');
+$rootOk = $rootResponse['status'] === 200 || $rootResponse['status'] === 302;
+check('جذر الموقع (/) يفتح التطبيق', $rootOk, 'status=' . $rootResponse['status']);
+
+if ($rootResponse['status'] === 302) {
+    $location = $rootResponse['headers']['location'] ?? '';
+    check(
+        'إعادة التوجيه تحافظ على النطاق والمنفذ',
+        $location !== '' && !str_contains($location, '//localhost/'),
+        'Location=' . $location
+    );
+}
+
+// المسارات داخل الواجهة يجب أن تُخدم من /app/ لا من الجذر
+foreach (['/app/js/app.js', '/app/css/app.css', '/app/js/api.js'] as $asset) {
+    check('الملف يُقدَّم: ' . basename($asset), req($base . $asset)['status'] === 200);
+}
+
 $sw = req($base . '/sw.js');
 check('Service Worker متاح على جذر الموقع', $sw['status'] === 200 && str_contains($sw['raw'], 'addEventListener'));
 
