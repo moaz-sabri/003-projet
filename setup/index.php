@@ -27,7 +27,7 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
-$configFile = BASE_PATH . '/storage/config/local.php';
+$configFile = app_config_file();
 $installed  = is_file($configFile);
 
 $errors  = [];
@@ -150,11 +150,16 @@ try {
                 break;
             }
 
-            if ($exposure['state'] === 'exposed') {
+            // حجب التهيئة عند تسريب بيانات الزبائن أو بيانات الدخول فقط.
+            // كشف شيفرة المشروع (bin/console) أقل خطورة ولا يمنع الإعداد.
+            if ($exposure['state'] === 'critical') {
                 $securityAlert = $exposure;
+            } elseif ($exposure['state'] === 'source') {
+                $warnings[] = 'بيانات الزبائن محميّة، لكن شيفرة المشروع مقروءة للزوار.'
+                    . ' احذف bin/ و tests/ و tools/ من النسخة المنشورة لإخفائها.';
             }
 
-            $success = $exposure['state'] !== 'exposed';
+            $success = $exposure['state'] !== 'critical';
         } catch (Throwable $e) {
             $errors[] = 'تعذّر إنشاء قاعدة البيانات: ' . $e->getMessage();
         }
@@ -218,13 +223,15 @@ function e(string $value): string
 
   <?php if ($securityAlert !== null): ?>
     <div class="alert err">
-      <strong>⛔ توقف: بياناتك مكشوفة على الإنترنت</strong>
+      <strong>⛔ توقف: بيانات الزبائن مكشوفة على الإنترنت</strong>
       <p style="margin:8px 0 0">
-        خادمك لا يقرأ ملفات <code>.htaccess</code>، لذا قاعدة البيانات وبيانات الدخول
-        قابلة للتحميل من أي شخص يعرف الرابط. <strong>أصلح هذا قبل أي شيء آخر.</strong>
+        خادمك لا يمنع الوصول إلى مجلدات البيانات، فأي شخص يعرف الرابط يستطيع
+        تنزيل قاعدة البيانات كاملة أو قراءة بيانات الدخول.
+        <strong>أصلح هذا قبل أي شيء آخر.</strong>
       </p>
       <ul>
         <?php foreach ($securityAlert['exposed'] as $item): ?>
+          <?php if ($item['severity'] !== 'critical') { continue; } ?>
           <li><code><?= e($item['path']) ?></code> — <?= e($item['label']) ?> (رد <?= (int) $item['status'] ?>)</li>
         <?php endforeach; ?>
       </ul>

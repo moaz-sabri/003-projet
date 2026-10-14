@@ -13,7 +13,7 @@
 
 1. [ما الذي يقدّمه هذا القالب](#1-ما-الذي-يقدمه-هذا-القالب)
 2. [التشغيل السريع](#2-التشغيل-السريع)
-3. [النشر على استضافة عادية](#3-النشر-على-استضافة-عادية)
+3. [النشر على استضافة عادية (nginx)](#3-النشر-على-استضافة-عادية-nginx)
 4. [بنية المشروع](#4-بنية-المشروع)
 5. [تخصيص القالب لمشروع آخر](#5-تخصيص-القالب-لمشروع-آخر)
 6. [الأمان](#6-الأمان)
@@ -57,106 +57,142 @@
 
 ## 2. التشغيل السريع
 
-### أ) بالطرفية (محليًا)
+### أ) التطوير محليًا — Docker (الطريقة المعتمدة)
+
+كل بيئة تطوير تُشغَّل بالحاوية نفسها المستخدمة في الإنتاج، فتطابق النتائج
+ولا تختلف بين جهازك وبين الاستضافة.
 
 ```bash
-# 1) تهيئة النسخة (إنشاء قاعدة البيانات + حساب المدير)
-php bin/console install --url=http://localhost:8000 --user=admin --pass="كلمة_مرور_قوية"
+# 1) بناء الحاوية وتشغيلها على المنفذ 8080
+docker compose up -d --build
 
-# 2) توليد أيقونات التطبيق
-php bin/console icons
+# 2) تهيئة النسخة (داخل الحاوية)
+docker exec light-commerce php bin/console install \
+     --url=http://localhost:8080 --user=admin --pass="كلمة_مرور_قوية"
 
-# 3) (اختياري) بيانات تجريبية للتجربة السريعة
-php bin/console seed:demo
-
-# 4) تشغيل خادم محلي (مع راوتر يحمي المسارات الحساسة)
-php -S localhost:8000 bin/serve.php
+# 3) توليد الأيقونات + بيانات تجريبية (اختياري)
+docker exec light-commerce php bin/console icons
+docker exec light-commerce php bin/console seed:demo
 ```
-
-> **مهم:** استخدم `bin/serve.php` دائمًا ولا تستخدم `-t .` مباشرةً.
-> خادم PHP المدمج لا يقرأ `.htaccess`، لذا يطبّق الراوتر نفس قواعد الحماية برمجيًا:
-> منع الوصول إلى `src/` و `storage/` و `bin/` و `tests/`، ومنع تنفيذ PHP داخل `app/uploads/`.
-> بدون الراوتر يصبح ملف `storage/config/local.php` (وفيه تجزئة كلمة مرور المدير) قابلًا للقراءة عبر المتصفح.
-
-ثم افتح:
 
 | الوجهة | الرابط |
 | --- | --- |
-| واجهة الزبون | <http://localhost:8000/app/index.html> |
-| لوحة الإدارة | <http://localhost:8000/admin/> |
+| واجهة الزبون | <http://localhost:8080/> |
+| لوحة الإدارة | <http://localhost:8080/admin/> |
 
-### ب) مع Docker
+**أوامر التطوير المتكررة:**
 
 ```bash
-docker compose up -d --build
-
-# تهيئة النسخة
-docker compose exec app php bin/console install \
-    --url=http://localhost:8080 --user=admin --pass="كلمة_مرور_قوية"
-
-# توليد الأيقونات
-docker compose exec app php bin/console icons
+docker compose logs -f app                             # سجل الخادم
+docker exec light-commerce php tests/run.php        # 236 اختبارًا
+docker exec light-commerce php tools/security-probe.php http://127.0.0.1
+docker exec light-commerce php bin/console status   # حالة النسخة
+docker exec light-commerce php bin/console security:check  # فحص حماية البيانات
+docker exec light-commerce php bin/console security:check  # فحص حماية البيانات
+docker compose down                                     # إيقاف
 ```
 
-ثم افتح <http://localhost:8080/setup/> أو روابط المشروع على المنفذ 8080.
+> **لماذا Docker محليًا؟** اختلاف بيئات الخادم هو ما أنتج ثلاثة عيوب في
+> مراجعة سابقة: عيوب تعمل على خادم PHP المدمج وتفشل على Apache.
+> نفس الصورة في كل مكان = لا مفاجآت.
 
-> Docker للتطوير فقط. بيئة الإنتاج لا تحتاجه إطلاقًا.
+### أ-2) بديل سريع بلا Docker (للاستعراض فقط)
 
-### ج) بدون وصول للطرفية (استضافة عادية)
-
-ارفع الملفات كما هي، ثم افتح:
-
+```bash
+php bin/console install --url=http://localhost:8000 --user=admin --pass="كلمة_مرور_قوية"
+php bin/console icons
+php -S localhost:8000 bin/serve.php
 ```
-https://your-site.com/setup/
-```
 
-ستظهر صفحة تهيئة واحدة تطلب رابط الموقع واسم المستخدم وكلمة المرور،
-وتُنشئ قاعدة البيانات والأيقونات تلقائيًا، ثم تتوقف عن العمل.
-**احذف مجلد `setup/` بعد التهيئة.**
+> `bin/serve.php` راوتر يحاكي قواعد الحماية برمجيًا لأن خادم PHP المدمج
+> لا يقرأ `.htaccess`. **لا تعتمد عليه للاختبار النهائي.**
 
 ---
 
-## 3. النشر على استضافة عادية
+## 3. النشر على استضافة عادية (nginx)
 
-### المتطلبات
+**المتطلبات:** PHP 8.1+ مع `pdo_sqlite`، و nginx + PHP-FPM.
+لا Composer ولا npm ولا خدمات خارجية.
 
-| المتطلب | الحد الأدنى | الملاحظة |
+| المتطلب | الحد الأدنى | ملاحظة |
 | --- | --- | --- |
-| PHP | 8.1 | مُختبَر على 8.4 |
-| SQLite3 + PDO | أي إصدار حديث | `pdo_sqlite` |
-| mbstring | — | للنصوص العربية |
-| GD (اختياري) | — | لتصغير الصور وإعادة ترميزها |
-| fileinfo (اختياري) | — | للتحقق من الصور |
+| PHP | 8.1 | مُختبَر على 8.3 و 8.4 |
+| SQLite3 + PDO | مع الإصدار | `pdo_sqlite` |
+| mbstring | مطلوب | للعرض العربي الصحيح |
+| GD (اختياري) | غير مطلوب | لتوليد الصور فقط |
+| fileinfo | مدمج | للتحقق من نوع الصورة |
 
-### الخطوات
+تأكد من `pdo_sqlite`:
+```bash
+php -m | grep pdo_sqlite
+```
 
-1. **ارفع كل الملفات** إلى جذر الموقع (أو مجلد فرعي — القالب يدعم ذلك).
-2. **اضبط الصلاحيات**:
+### خطوات النشر
 
+1. **ارفع ملفات المشروع** إلى مجلد الموقع (مثال: `public_html`).
+
+2. **أنشئ مجلدات التخزين** بصلاحيات الكتابة:
    ```bash
-   chmod 755 .
+   mkdir -p storage/database storage/config storage/logs storage/tmp storage/backups
    chmod -R 775 storage
-   chmod 775 storage/config
    ```
 
-3. **افتح صفحة التهيئة**: `https://your-site.com/setup/` ثم احذف مجلد `setup/`.
-   أو نفّذ محليًا: `php bin/console install --url=https://your-site.com --user=admin --pass=...`
-4. **اضبط رابط الموقع** في `storage/config/local.php` (يُستخدم في رموز QR):
+3. **ثبّت النسخة** — إما عبر صفحة التهيئة `https://your-site.com/setup/`
+   (واحذف `setup/` بعدها)، أو من الطرفية:
+   ```bash
+   php bin/console install --url=https://your-site.com --user=admin --pass="كلمة_مرور_قوية"
+   ```
 
+4. **اضبط رابط الموقع** في `storage/config/local.php` (يُستخدم في رموز QR):
    ```php
    'app' => ['base_url' => 'https://your-site.com'],
    ```
 
-5. **تأكد من الحماية**: إن كان خادمك Apache، ملفات `.htaccess` المرفقة تحجب
-   `src/` و `storage/` و `bin/` و `tests/` وتمنع تنفيذ أي سكربت داخل `app/uploads/`.
-   إن كنت تستخدم Nginx، استعمل الإعداد المرفق في `docker/nginx.conf` كمرجع.
-6. **فعّل HTTPS** — الجلسة والكوكيز تعمل بشكل صحيح مع `Secure` فقط عبر HTTPS.
+5. **فعّل HTTPS** — بدونه تبقى جلسة المدير بلا علامة `Secure`.
 
-> **مهم:** لا يمكن تشغيل النسخة دون امتداد `pdo_sqlite`. تحقّق من ذلك أولًا:
-> `php -m | grep pdo_sqlite`
+### ⚠️ أهم خطوة: حماية البيانات على nginx
 
----
+**nginx لا يقرأ ملفات `.htaccess` إطلاقًا**، وعلى أغلب الاستضافات لا يمكنك
+إضافة قواعد لكل مجلد. النتيجة المحتملة: رابط عام لقاعدة البيانات.
 
+```
+https://your-site.com/storage/database/app.sqlite   ← ينزّل كل الطلبات وأسماء الزبائن
+```
+
+القالب يفحص هذا تلقائيًا عند التثبيت **ويمنع إتمام التهيئة** إن كانت البيانات
+مكشوفة، لكن الحل النهائي هو نقلها خارج مجلد الموقع:
+
+```bash
+php tools/move-outside-webroot.php          # عرض الخطة
+php tools/move-outside-webroot.php --yes    # تنفيذ
+```
+
+تنقل الأداة ما يلي خارج `public_html` وتحدّث المسارات والصلاحيات تلقائيًا:
+
+| من | إلى |
+| --- | --- |
+| `storage/config/local.php` | `../private-config/local.php` |
+| `storage/database/app.sqlite` | `../private-data/app.sqlite` |
+
+ثم تحقّق:
+
+```bash
+php bin/console security:check   # يجب أن يقول: البيانات محميّة ✔
+```
+
+> **ملاحظة:** لا تنقل `app/uploads/` — صور المنتجات يجب أن تصل إلى المتصفح.
+> عند حذف المجلدات غير المستخدمة من النسخة المنشورة (`bin/ tests/ tools/`)
+> تصبح الشيفرة أيضًا غير مقروءة للزوار.
+
+### إن كان المضيف يتيح تعديل إعدادات nginx
+
+أضف هذه القواعد بدل النقل (ولا تنسَ نقل البيانات للاحتياط):
+
+```nginx
+location ~ ^/(storage|src|bin|tests|tools|docs)/ { deny all; return 404; }
+location ~ \.php$                                  { return 404; }
+location ^~ /app/uploads/                          { autoindex off; }
+```
 ## 4. بنية المشروع
 
 ```
@@ -189,7 +225,7 @@ project/
 │   ├── Tools/               مولّد الأيقونات والبيانات التجريبية
 │   └── bootstrap.php
 │
-├── storage/                 (غير متاح عبر الويب — محمي بـ .htaccess)
+├── storage/                 (غير متاح عبر الويب — محمي بقواعد الخادم أو خارج public_html)
 │   ├── config/local.php     ★ أسرار النسخة (لا يُرفع إلى Git)
 │   ├── database/app.sqlite  قاعدة البيانات
 │   ├── uploads/  backups/  logs/  tmp/
@@ -289,7 +325,7 @@ php bin/console migrate:fresh
 | XSS | إخراج نصي مُهرَّر في الواجهتين + `strip_tags` على مدخلات الزبون |
 | تلاعب بالأسعار | الخادم يحسب الإجمالي من قاعدة البيانات ويتجاهل أي سعر يرسله العميل |
 | رفع الملفات | فحص النوع الحقيقي عبر `getimagesize` + حجم + أبعاد + اسم عشوائي + منع التنفيذ |
-| الوصول للملفات | `.htaccess` / nginx يمنع `src/` و `storage/` و `bin/` و `tests/` وتنفيذ PHP داخل الرفع |
+| الوصول للملفات | `nginx.conf` (Docker)، أو `.htaccess` على Apache، أو — على nginx بلا صلاحيات — نقل `storage/` خارج `public_html` بـ `tools/move-outside-webroot.php` |
 | حماية المتصفح | CSPصارمة للوحة الإدارة + `nosniff` + `frame-ancestors 'none'` |
 | الطلبات | حد ٢٠ طلب/دقيقة لكل عنوان IP + رفض.location غير صالح على الخادم |
 | تكرار الطلبات | مفتاح `Idempotency-Key` + قيد فريد في قاعدة البيانات |
@@ -365,6 +401,9 @@ php tools/code-review.php                      # 25 مراجعة كود وأدا
 php tools/restore-test.php                     # 13 فحص نسخ احتياطي واستعادة
 php tools/clean-install-test.php               # تثبيت نظيف من الصفر ثم فحص كامل
 php tools/audit-backup.php                     # نسخة احتياطية كاملة قبل أي تعديل
+php tools/load-test.php 50000 90                # اختبار الحمل (50 ألف طلب)
+php tools/move-outside-webroot.php --yes        # نقل البيانات خارج جذر الموقع
+php bin/console security:check                  # كشف تسريب المسارات الحسّاسة
 php bin/console security:check                # كشف تسريب المسارات الحسّاسة
 ```
 
@@ -483,10 +522,12 @@ php tests/run.php orders     # مجموعة واحدة
 
 ## ⚠️ تحقّق من أمان نشرك بعد الرفع
 
-**هذا أهم خطوة بعد التثبيت.** حماية قاعدة البيانات تعتمد على أن خادمك يقرأ
-ملفات `.htaccess`. بعض استضافات Apache مُهيّأة بـ `AllowOverride None`
-(وهو الافتراضي في Apache)، فتُتجاهَل الحماية **بصمت** — وعندها يصبح رابط
-`storage/database/app.sqlite` قابلًا للتحميل من أي شخص، بكل الطلبات وأسماء الزبائن.
+**أهم خطوة بعد التثبيت.** حماية قاعدة البيانات تعتمد على أن خادمك يمنع
+الوصول إلى مجلد `storage/`.
+
+> **على nginx تحديدًا:** nginx لا يقرأ `.htaccess` إطلاقًا، وعلى أغلب
+> الاستضافات لا يمكن إضافة قواعد لكل مجلد. لذلك قد يصبح رابط قاعدة
+> البيانات متاحًا للعموم دون أي رسالة خطأ.
 
 ### كيف تتأكد؟
 
@@ -494,36 +535,41 @@ php tests/run.php orders     # مجموعة واحدة
 php bin/console security:check
 ```
 
-أو ببساطة افتح هذا الرابط في متصفحك:
+أو افتح هذا الرابط في المتصفح:
 
 ```
 https://your-site.com/storage/database/app.sqlite
 ```
 
 | النتيجة | المعنى |
-|---------|--------|
-| `ممنوع` أو `غير موجود` | ✅ سليم، تابع |
-| نزَّل ملفًا | ⛔ **خطير — راجع الحلول أدناه فورًا** |
+| --- | --- |
+| `ممنوع` أو `غير موجود` | ✅ البيانات محميّة |
+| نزَّل ملفًا | ⛔ **بيانات مكشوفة — نفّذ أدناه فورًا** |
 
-> الأمر `install` وصفحة التهيئة يفحصان هذا الأمر تلقائيًا **ويوقفان التهيئة**
-> إن كانت البيانات مكشوفة، فلن تظهر صفحة «تمت التهيئة» وأنت في خطر.
+> أمر `install` وصفحة التهيئة يفحصان هذا تلقائيًا **ويوقفان التهيئة**
+> إن كانت البيانات مكشوفة.
 
-### الحل إن كانت مكشوفة
+### الحل (يعمل على أي خادم)
 
-1. **فعّل حماية الخادم** (الأفضل):
-   - cPanel: `Domains` ← اختر النطاق ← فعّل `AllowOverride = All`
-     من قسم Apache أو `.htaccess`.
-   - بقية اللوحات: فعّل `mod_rewrite` و `AllowOverride All` للنطاق.
-2. **انقل البيانات خارج مجلد الموقع** (لا يعتمد على إعدادات الخادم):
-   - انقل مجلد `storage/` إلى مثل `/home/USER/private-data/`
-   - عدّل `db.path` في `storage/config/local.php` ليشير إلى المسار الجديد.
+```bash
+php tools/move-outside-webroot.php --yes
+php bin/console security:check
+```
 
-### بعد أي تعديل على إعدادات Apache
+### إن أتاح المضيف تعديل إعدادات nginx
 
-أعد تشغيل الفحص — الأمر يغطي أيضًا `src/` و `bin/` و `tests/`.
+```nginx
+location ~ ^/(storage|src|bin|tests|tools|docs)/ { deny all; return 404; }
+location ~ \.php$                                  { return 404; }
+```
+
+### ملاحظة على كشف الشيفرة
+
+إن ظهر في الفحص أن `bin/console` أو `tests/` قابلة للقراءة، فالبيانات
+**محميّة** ولا خطر حقيقي (أنت صاحب هذه الشيفرة أصلًا). ولإخفائها احذف
+هذه المجلدات من النسخة المنشورة.
 
 ---
-
 ## حدود الإصدار الأول
 
 خارج النطاق عمدًا: تعدد الشركات، حسابات الزبائن، صلاحيات متعددة، دفع إلكتروني،

@@ -1,8 +1,21 @@
 # =============================================================================
-# services:
-#   app      — بيئة تطوير/تجربة كاملة (nginx + php-fpm على منفذ 8080)
+# بيئة التطوير المحلية — نفس صورة الإنتاج بالضبط
 #
-# للإنتاج: ارفع مجلدات المشروع إلى استضافة PHP عادية — لا حاجة إلى Docker.
+# لماذا Docker محليًا؟
+#   اختلاف بيئات الخادم أنتج ثلاثة عيوب في مراجعة سابقة: عيوب تنجح على
+#   خادم PHP المدمج وتفشل على Apache. نفس الصورة في كل مكان = لا مفاجآت.
+#
+# الاستخدام:
+#   docker compose up -d --build
+#   docker exec light-commerce php bin/console install \
+#        --url=http://localhost:8080 --user=admin --pass="كلمة_مرور_قوية"
+#   docker exec light-commerce php bin/console icons
+#   docker exec light-commerce php bin/console seed:demo
+#   docker compose down
+#
+# ملاحظة: نستخدم volumes مُسمّاة (لا bind mount) لمجلد storage عمدًا.
+#   الربط بمجلد المضيف كان يُدخل ملف إعدادات محليًا بمسارات Windows
+#   داخل الحاوية، فتتعطّل قاعدة البيانات. الـ volumes معزولة ونظيفة.
 # =============================================================================
 
 services:
@@ -14,11 +27,12 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # تُحفظ البيانات خارج الصورة لتبقى بعد إعادة البناء
-      - ./storage:/var/www/html/storage
-      - ./app/uploads:/var/www/html/app/uploads
+      - storage-data:/var/www/html/storage
+      - uploads-data:/var/www/html/app/uploads
     environment:
       TZ: Asia/Beirut
     restart: unless-stopped
-    stdin_open: true
-    tty: true
+
+volumes:
+  storage-data:
+  uploads-data:

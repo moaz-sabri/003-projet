@@ -57,7 +57,7 @@ $writeLocalConfig = static function (array $config) use ($say): void {
 };
 
 $ensureInstalled = static function () use ($say): void {
-    if (!is_file(BASE_PATH . '/storage/config/local.php')) {
+    if (!is_file(app_config_file())) {
         $say('النسخة غير مهيأة بعد. شغّل: php bin/console install', 'err');
         exit(1);
     }
@@ -66,7 +66,7 @@ $ensureInstalled = static function () use ($say): void {
 switch ($command) {
     /* ------------------------- تهيئة النسخة ------------------------- */
     case 'install': {
-        if (is_file(BASE_PATH . '/storage/config/local.php') && empty($options['force'])) {
+        if (is_file(app_config_file()) && empty($options['force'])) {
             $say('النسخة مهيأة مسبقًا. استخدم --force لإعادة التهيئة (سيُحذف ملف الإعدادات).', 'warn');
             exit(1);
         }
@@ -112,20 +112,34 @@ switch ($command) {
 
         // في الحاويات قد يكون التنفيذ بحساب root — نضبط الملكية ليستخدمها خادم الويب
         \App\Core\StorageWriter::fixTree(BASE_PATH . '/storage');
-        \App\Core\StorageWriter::fixOwnership(BASE_PATH . '/storage/config/local.php', 0640);
+        \App\Core\StorageWriter::fixOwnership(app_config_file(), 0640);
 
         $say('تمت تهيئة النسخة بنجاح.', 'ok');
         $say('رابط الموقع : ' . $url);
         $say('لوحة الإدارة : ' . $url . '/admin/');
         $say('اسم المستخدم: ' . $user);
 
-        // فحص أمان إلزامي: بعض الاستضافات تُهمل .htaccess فتُكشف قاعدة البيانات
-        $exposure = \App\Core\Security\ExposureCheck::run($url);
+        // فحص أمان إلزامي: بعض الاستضافات لا تحجب الوصول للبيانات
+        // داخل الحاوية لا يصل الخادم إلى رابطه العلني، لذا نجرّب عناوين داخلية.
+        $exposure = ['state' => 'unknown', 'checked' => 0, 'exposed' => [], 'hint' => ''];
+        $candidates = array_unique(array_filter([$url, 'http://127.0.0.1', 'http://localhost']));
+        foreach ($candidates as $candidate) {
+            $attempt = \App\Core\Security\ExposureCheck::run($candidate, 6, $url);
+            if ($attempt['state'] === 'unknown') {
+                $exposure['hint'] = $attempt['hint'];
+                continue;
+            }
+            $exposure = $attempt;
+            break;
+        }
+
         $say('');
-        if ($exposure['state'] === 'exposed') {
-            $say('⛔ تحذير أمني: خادمك لا يحترم .htaccess', 'err');
+        if ($exposure['state'] === 'critical') {
+            $say('⛔ تحذير أمني: بيانات حسّاسة مكشوفة على الإنترنت', 'err');
             foreach ($exposure['exposed'] as $item) {
-                $say('   - ' . $item['path'] . '  (HTTP ' . $item['status'] . ')', 'err');
+                if ($item['severity'] === 'critical') {
+                    $say('   - ' . $item['path'] . '  (HTTP ' . $item['status'] . ')', 'err');
+                }
             }
             $say('');
             $say($exposure['hint'], 'warn');
@@ -133,6 +147,9 @@ switch ($command) {
         }
         if ($exposure['state'] === 'secure') {
             $say('فحص الأمان: المسارات الحسّاسة محميّة ✔', 'ok');
+        } elseif ($exposure['state'] === 'source') {
+            $say('فحص الأمان: البيانات محميّة ✔ — لكن شيفرة المشروع مقروءة للزوار.', 'warn');
+            $say('  ' . $exposure['hint'], 'warn');
         } else {
             $say('فحص الأمان: تعذّر الفحص الآلي — ' . $exposure['hint'], 'warn');
         }
@@ -168,7 +185,7 @@ switch ($command) {
             $say('كلمة المرور قصيرة جدًا.', 'err');
             exit(1);
         }
-        $file = BASE_PATH . '/storage/config/local.php';
+        $file = app_config_file();
         $config = require $file;
         $config['admin']['password_hash'] = password_hash($new, PASSWORD_DEFAULT);
         $config['admin']['updated_at'] = date('c');
@@ -240,10 +257,17 @@ switch ($command) {
         $baseUrl = rtrim((string) app_config('app.base_url', ''), '/');
         if ($baseUrl !== '') {
             $exposure = \App\Core\Security\ExposureCheck::run($baseUrl, 4);
-            $label = ['secure' => 'محميّة ✔', 'exposed' => 'مكشوفة ✘', 'unknown' => 'تعذّر الفحص'][$exposure['state']] ?? '؟';
-            $say('حماية المسارات: ' . $label, $exposure['state'] === 'secure' ? 'ok' : ($exposure['state'] === 'exposed' ? 'err' : 'warn'));
-            if ($exposure['state'] === 'exposed') {
-                $say('  شغّل: php bin/console security:check للتفاصيل', 'err');
+            $labels = [
+                'secure'   => 'البيانات محميّة ✔',
+                'source'   => 'البيانات محميّة ✔ (الشيفرة مقروءة)',
+                'critical' => 'بيانات مكشوفة ✘',
+                'unknown'  => 'تعذّر الفحص',
+            ];
+            $label = $labels[$exposure['state']] ?? '؟';
+            $tone = $exposure['state'] === 'secure' ? 'ok' : ($exposure['state'] === 'critical' ? 'err' : 'warn');
+            $say('حماية البيانات: ' . $label, $tone);
+            if ($exposure['state'] === 'critical' || $exposure['state'] === 'source') {
+                $say('  شغّل: php bin/console security:check للتفاصيل', $tone);
             }
         }
         exit(0);
@@ -279,7 +303,7 @@ switch ($command) {
         $result = \App\Core\Security\ExposureCheck::run($baseUrl);
 
         if ($result['state'] === 'secure') {
-            $say('النتيجة: محمي ✔  (' . $result['checked'] . ' مسارًا تم فحصها)', 'ok');
+            $say('النتيجة: البيانات محميّة ✔  (' . $result['checked'] . ' مسارًا تم فحصها)', 'ok');
             exit(0);
         }
 
@@ -289,14 +313,22 @@ switch ($command) {
             exit(2);
         }
 
-        $say('النتيجة: مكشوف ✘', 'err');
+        // source = شيفرة المالك مكشوفة | critical = بيانات الزبائن مكشوفة
+        if ($result['state'] === 'source') {
+            $say('النتيجة: البيانات محميّة ✔ — لكن شيفرة المشروع مقروءة للزوار', 'warn');
+        } else {
+            $say('النتيجة: بيانات حسّاسة مكشوفة ✘', 'err');
+        }
+
         $say('');
         foreach ($result['exposed'] as $item) {
-            $say('  - ' . $item['path'] . '  (' . $item['label'] . ')  HTTP ' . $item['status'], 'err');
+            $mark = $item['severity'] === 'critical' ? 'خطر' : 'ملاحظة';
+            $tone  = $item['severity'] === 'critical' ? 'err' : 'warn';
+            $say('  - ' . $item['path'] . '  (' . $item['label'] . ')  HTTP ' . $item['status'] . '  [' . $mark . ']', $tone);
         }
         $say('');
         $say($result['hint'], 'warn');
-        exit(1);
+        exit($result['state'] === 'critical' ? 1 : 0);
     }
 
     default:

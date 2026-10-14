@@ -117,7 +117,7 @@ final class Auth
     /** تغيير كلمة المرور (يتطلب الجلسة الحالية). */
     public static function changePassword(string $newPassword): void
     {
-        $configFile = BASE_PATH . '/storage/config/local.php';
+        $configFile = app_config_file();
         $hash       = password_hash($newPassword, PASSWORD_DEFAULT);
         $php        = "<?php\n// ملف إعدادات محلي — لا يُرفع إلى أي مستودع ولا يُخدم عبر الويب.\nreturn "
                     . var_export([

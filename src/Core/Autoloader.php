@@ -29,14 +29,26 @@ mb_internal_encoding('UTF-8');
 /**
  * مسار ملف الإعدادات المحلي.
  *
- * يمكن تجاوزه بمتغير البيئة LC_CONFIG_FILE — تستخدمه الاختبارات لتوجيه
- * بيانات دخول مؤقتة إلى مجلد مؤقت، فلا تُلمس بيانات الدخول الحقيقية إطلاقًا.
+ * يُبحث بالترتيب:
+ *  1) متغير البيئة LC_CONFIG_FILE — تستخدمه الاختبارات لتوجيه بيانات دخول
+ *     مؤقتة إلى مجلد مؤقت، فلا تُلمس بيانات النسخة الحقيقية إطلاقًا.
+ *  2) ‎private-config/local.php على مستوى المجلد الأعلى من مجلد الموقع
+ *     (أي خارج جذر الويب إن كان المشروع داخل public_html).
+ *     هذه هي الطريقة الموصى بها على استضافة nginx، لأن nginx لا يقرأ
+ *     ملفات .htaccess إطلاقًا ولا يمكن إضافة قواعد لكل مجلد.
+ *  3) storage/config/local.php — الوضع الافتراضي داخل المشروع.
  */
 function app_config_file(): string
 {
     $override = getenv('LC_CONFIG_FILE');
     if (is_string($override) && $override !== '' && is_file($override)) {
         return $override;
+    }
+
+    // خارج جذر الويب: ../private-config/local.php
+    $outside = dirname(rtrim(BASE_PATH, '/\\')) . '/private-config/local.php';
+    if (is_file($outside)) {
+        return $outside;
     }
 
     return BASE_PATH . '/storage/config/local.php';

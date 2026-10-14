@@ -24,14 +24,26 @@ final class ExposureCheck
 {
     /**
      * المسارات التي يجب ألّا تُخدَم أبدًا (نسبةً إلى مجلد الموقع).
+     *
+     * severity = critical : بيانات حسّاسة (طلبات، أسماء، كلمات مرور)
+     * severity = source   : شيفرة المالك — أقل خطورة، فقد يقرأها صاحب الموقع
+     *                        original، لكن يُفضّل عدم نشرها.
      */
     public const SENSITIVE_PATHS = [
         'storage/database/app.sqlite' => 'قاعدة البيانات (كل الطلبات وأسماء الزبائن)',
         'storage/config/local.php'    => 'ملف بيانات الدخول (تجزئة كلمة مرور المدير)',
+        'storage/backups/backup'      => 'النسخ الاحتياطية (نسخة كاملة من البيانات)',
         'src/bootstrap.php'           => 'شيفرة الخادم',
         'src/Config/ProjectConfig.php' => 'إعدادات البنية',
         'bin/console'                 => 'أداة الطرفية',
         'tests/run.php'               => 'ملفات الاختبارات',
+    ];
+
+    /** المسارات التي تسريبها يُعرّض بيانات الزبائن أو المدير. */
+    private const CRITICAL_PATHS = [
+        'storage/database/app.sqlite',
+        'storage/config/local.php',
+        'storage/backups/backup',
     ];
 
     /** ردود تعني «غير محمي» — قد تُنفَّذ ملفات PHP وتعود فارغة لكن الحماية معطّلة. */
@@ -79,7 +91,12 @@ final class ExposureCheck
             $responded++;
 
             if (in_array($status, self::EXPOSED_STATUSES, true)) {
-                $exposed[] = ['path' => $path, 'label' => $label, 'status' => $status];
+                $exposed[] = [
+                    'path'     => $path,
+                    'label'    => $label,
+                    'status'   => $status,
+                    'severity' => in_array($path, self::CRITICAL_PATHS, true) ? 'critical' : 'source',
+                ];
             }
         }
 
@@ -95,10 +112,24 @@ final class ExposureCheck
         }
 
         if ($exposed === []) {
-            return self::result('secure', $checked, [], 'المسارات الحسّاسة محميّة.');
+            return self::result('secure', $checked, [], 'المسارات الحسّاسة محميّة.', 0);
         }
 
-        return self::result('exposed', $checked, $exposed, self::remediation($displayUrl));
+        $critical = 0;
+        foreach ($exposed as $item) {
+            if ($item['severity'] === 'critical') {
+                $critical++;
+            }
+        }
+
+        // البيانات الحسّاسة مكشوفة = أخطر من كشف شيفرة المالك
+        return self::result(
+            $critical > 0 ? 'critical' : 'source',
+            $checked,
+            $exposed,
+            self::remediation($displayUrl, $critical > 0),
+            $critical
+        );
     }
 
     /** حالة الاستجابة، أو null إذا تعذّر الوصول. */
@@ -127,48 +158,71 @@ final class ExposureCheck
         return null;
     }
 
-    /** رسالة الحل الجذري. */
-    private static function remediation(string $baseUrl): string
+    /**
+     * رسالة الحل — تختلف بحسب خطورة التسريب.
+     *
+     * كشف شيفرة المالك أقل خطورة من كشف قاعدة بيانات الزبائن،
+     * فلا نُطلق إنذارًا واحدًا بحدّة واحدة حتى لا يفقد الأداة مصداقيتها.
+     */
+    private static function remediation(string $baseUrl, bool $critical): string
     {
         $canary = $baseUrl . '/storage/database/app.sqlite';
 
-        return "خادمك لا يقرأ ملفات .htaccess، أي أن حماية المجلدات الحسّاسة معطّلة."
+        if (!$critical) {
+            return "لا توجد بيانات زبائن أو بيانات دخول مكشوفة ✔"
+                . "\n\n"
+                . "ما زال بإمكان الزوار قراءة شيفرة المشروع (bin/console وغيرها)."
+                . "\n"
+                . "هذا أقل خطورة لأن صاحب النسخة يملك هذه الشيفرة أصلًا."
+                . "\n\n"
+                . "لإخفائها بالكامل على استضافة لا تتيح تعديل إعدادات الخادم،"
+                . "\n"
+                . "احذف المجلدات غير اللازمة من النسخة المنشورة:"
+                . "\n"
+                . "  bin/  tests/  tools/  docs/"
+                . "\n\n"
+                . "وللتأكّد من حماية البيانات: افتح " . $canary
+                . "\n"
+                . "يجب أن يظهر «ممنوع» أو «غير موجود».";
+        }
+
+        return "⛔ بيانات حسّاسة مكشوفة على الإنترنت"
             . "\n\n"
-            . "السبب المحتمل: إعداد Apache يستخدم \"AllowOverride None\"، وهو الافتراضي."
+            . "خادمك لا يمنع الوصول إلى مجلدات البيانات. أي شخص يفتح الرابط"
+            . "\n"
+            . "يستطيع تنزيل قاعدة البيانات كاملة أو قراءة تجزئة كلمة مرور المدير."
             . "\n\n"
-            . "الحل الأول — تفعيل حماية الخادم:"
+            . "السبب المحتمل: إعداد Apache بالقيمة \"AllowOverride None\"،"
             . "\n"
-            . "  • cPanel: Domains ← اختر النطاق ← من قسم \"Apache Handlers\""
-            . "\n"
-            . "    فعّل \"Index Files\" أو اجعل AllowOverride = All."
-            . "\n"
-            . "  • بقية اللوحات: فعّل mod_rewrite و AllowOverride All للنطاق."
+            . "أو خادم nginx لا يقرأ .htaccess ولا يمكن تعديل إعداداته."
             . "\n\n"
-            . "الحل الثاني — لا يعتمد على إعدادات الخادم (الأضمن):"
+            . "الحل الموصى به (يعمل على أي خادم بلا إعداد):"
             . "\n"
-            . "  انقل مجلد storage خارج مجلد الموقع public_html، مثلًا إلى"
-            . "\n"
-            . "  /home/USER/private-data/ ثم عدّل قيمة 'db.path' في ملف"
-            . "\n"
-            . "  storage/config/local.php ليشير إلى المسار الجديد. هكذا لا يستطيع"
-            . "\n"
-            . "  المتصفح الوصول إلى قاعدة البيانات مهما كانت إعدادات Apache."
+            . "  php tools/move-outside-webroot.php --yes"
             . "\n\n"
-            . "للتحقق بعد الإصلاح، افتح هذا العنوان في المتصفح:"
+            .  "  ينقل قاعدة البيانات وملف الإعدادات خارج مجلد public_html"
             . "\n"
-            . '  ' . $canary
+            . "  ويحدّث المسارات والصلاحيات تلقائيًا."
+            . "\n\n"
+            . "حل بديل إن أتاح المضيف تعديل الإعدادات:"
+            . "\n"
+            . "  • Apache: AllowOverride All مع mod_rewrite"
+            . "\n"
+            . "  • nginx: قاعدة deny لكل مجلد حسّاس"
+            . "\n\n"
+            . "للتحقق بعد الإصلاح، افتح: " . $canary
             . "\n"
             . "يجب أن ترى \"ممنوع\" أو \"غير موجود\" — ولا يجوز أن يُنزَّل الملف.";
     }
-
     /**
      * @param list<array{path:string,label:string,status:int}> $exposed
      * @return array{state:string,checked:int,exposed:list<array>,hint:string}
      */
-    private static function result(string $state, int $checked, array $exposed, string $hint): array
+    private static function result(string $state, int $checked, array $exposed, string $hint, int $critical = 0): array
     {
         return [
-            'state'   => $state,
+            'state'    => $state,
+            'critical' => $critical,
             'checked' => $checked,
             'exposed' => $exposed,
             'hint'    => $hint,
