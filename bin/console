@@ -118,6 +118,24 @@ switch ($command) {
         $say('رابط الموقع : ' . $url);
         $say('لوحة الإدارة : ' . $url . '/admin/');
         $say('اسم المستخدم: ' . $user);
+
+        // فحص أمان إلزامي: بعض الاستضافات تُهمل .htaccess فتُكشف قاعدة البيانات
+        $exposure = \App\Core\Security\ExposureCheck::run($url);
+        $say('');
+        if ($exposure['state'] === 'exposed') {
+            $say('⛔ تحذير أمني: خادمك لا يحترم .htaccess', 'err');
+            foreach ($exposure['exposed'] as $item) {
+                $say('   - ' . $item['path'] . '  (HTTP ' . $item['status'] . ')', 'err');
+            }
+            $say('');
+            $say($exposure['hint'], 'warn');
+            exit(1);
+        }
+        if ($exposure['state'] === 'secure') {
+            $say('فحص الأمان: المسارات الحسّاسة محميّة ✔', 'ok');
+        } else {
+            $say('فحص الأمان: تعذّر الفحص الآلي — ' . $exposure['hint'], 'warn');
+        }
         exit(0);
     }
 
@@ -217,6 +235,17 @@ switch ($command) {
         $version = \App\Core\Database::value('SELECT value FROM app_meta WHERE key = :k', ['k' => 'schema_version']);
         $say('مخطط قاعدة البيانات: ' . ($version ?: '؟'));
         $say('الإعدادات: ' . (is_writable(BASE_PATH . '/storage') ? 'قابلة للكتابة' : 'غير قابلة للكتابة'), is_writable(BASE_PATH . '/storage') ? 'ok' : 'err');
+
+        // تنبيه أمني سريع: هل ما زالت حماية المسارات الحسّاسة فعّالة؟
+        $baseUrl = rtrim((string) app_config('app.base_url', ''), '/');
+        if ($baseUrl !== '') {
+            $exposure = \App\Core\Security\ExposureCheck::run($baseUrl, 4);
+            $label = ['secure' => 'محميّة ✔', 'exposed' => 'مكشوفة ✘', 'unknown' => 'تعذّر الفحص'][$exposure['state']] ?? '؟';
+            $say('حماية المسارات: ' . $label, $exposure['state'] === 'secure' ? 'ok' : ($exposure['state'] === 'exposed' ? 'err' : 'warn'));
+            if ($exposure['state'] === 'exposed') {
+                $say('  شغّل: php bin/console security:check للتفاصيل', 'err');
+            }
+        }
         exit(0);
     }
 
@@ -228,6 +257,46 @@ switch ($command) {
         $count = \App\Tools\DemoSeeder::run();
         $say('تمت إضافة بيانات تجريبية (' . $count . ' منتج). احذفها قبل الإطلاق الحقيقي.', 'warn');
         exit(0);
+    }
+
+    case 'security:check': {
+        $ensureInstalled();
+        require_once BASE_PATH . '/src/bootstrap.php';
+
+        $baseUrl = rtrim((string) app_config('app.base_url', ''), '/');
+
+        // تجاوز الرابط مفيد داخل الحاويات (حيث لا يعمل رابط الاستضافة من الداخل)
+        if (isset($options['url']) && is_string($options['url']) && $options['url'] !== '') {
+            $baseUrl = rtrim($options['url'], '/');
+        }
+
+        if ($baseUrl === '') {
+            $say('لا يوجد رابط محفوظ للنسخة. مرّر الرابط: --url=https://...', 'err');
+            exit(1);
+        }
+
+        $say('فحص تسريب المسارات الحسّاسة على: ' . $baseUrl, 'head');
+        $result = \App\Core\Security\ExposureCheck::run($baseUrl);
+
+        if ($result['state'] === 'secure') {
+            $say('النتيجة: محمي ✔  (' . $result['checked'] . ' مسارًا تم فحصها)', 'ok');
+            exit(0);
+        }
+
+        if ($result['state'] === 'unknown') {
+            $say('النتيجة: تعذّر الفحص', 'warn');
+            $say($result['hint']);
+            exit(2);
+        }
+
+        $say('النتيجة: مكشوف ✘', 'err');
+        $say('');
+        foreach ($result['exposed'] as $item) {
+            $say('  - ' . $item['path'] . '  (' . $item['label'] . ')  HTTP ' . $item['status'], 'err');
+        }
+        $say('');
+        $say($result['hint'], 'warn');
+        exit(1);
     }
 
     default:
@@ -243,6 +312,7 @@ switch ($command) {
           icons                                     توليد أيقونات PWA
           qr "نص" --out=file.svg                    توليد رمز QR كـ SVG
           seed:demo                                 إضافة بيانات تجريبية
+          security:check                           فحص حماية المسارات الحسّاسة
           status                                    عرض حالة النسخة
 
         TXT;

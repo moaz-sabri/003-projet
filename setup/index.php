@@ -31,8 +31,10 @@ $configFile = BASE_PATH . '/storage/config/local.php';
 $installed  = is_file($configFile);
 
 $errors  = [];
+$warnings = [];
 $success = false;
 $generatedPassword = '';
+$securityAlert = null;
 
 /** كتابة ملف الإعدادات المحلية بصلاحيات آمنة. */
 $writeConfig = static function (array $config) use ($configFile): void {
@@ -98,10 +100,61 @@ if (!$installed && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     mkdir($path, 0775, true);
                 }
             }
-            require_once BASE_PATH . '/src/Tools/IconGenerator.php';
-            \App\Tools\IconGenerator::generateAll();
+            // توليد الأيقونات اختياري: نقص الصلاحيات لا يجب أن يُفشل التهيئة كلها.
+// إن فشل، يمكن توليدها لاحقًا بالأمر: php bin/console icons
+try {
+    require_once BASE_PATH . '/src/Tools/IconGenerator.php';
+    \App\Tools\IconGenerator::generateAll();
+} catch (Throwable $e) {
+    $warnings[] = 'تعذّر توليد أيقونات PWA تلقائيًا: ' . $e->getMessage()
+        . ' — ولّدها لاحقًا بالأمر: php bin/console icons';
+}
 
-            $success = true;
+            // لا نُعلن النجاح قبل التأكد أن الخادم يحترم .htaccess.
+            // بعض الاستضافات تُهيّأ بـ AllowOverride None فتُتجاهَل الحماية بصمت،
+            // وتصبح قاعدة البيانات (بكل الطلبات وأسماء الزبائن) قابلة للتحميل.
+            //
+            // نجرب عدة عناوين لأن الخادم قد لا يستطيع الوصول إلى رابطه العلني
+            // من داخل نفسه (سلوك شائع في الحاويات وبيئات الاستضافة).
+            $candidates = [$url];
+
+            $scheme    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $serverPort = (string) ($_SERVER['SERVER_PORT'] ?? '');
+
+            if (!empty($_SERVER['HTTP_HOST'])) {
+                $candidates[] = $scheme . '://' . $_SERVER['HTTP_HOST'];
+            }
+            if (!empty($_SERVER['SERVER_ADDR'])) {
+                $candidates[] = $scheme . '://' . $_SERVER['SERVER_ADDR'];
+                if ($serverPort !== '') {
+                    $candidates[] = $scheme . '://' . $_SERVER['SERVER_ADDR'] . ':' . $serverPort;
+                }
+            }
+
+            // عناوين بلا منفذ: تعمل على الإعداد الافتراضي (80) حتى لو كانت
+            // قيمة SERVER_PORT منقولة من ترويسة Host لا تطابق منفذ الخادم الفعلي.
+            $candidates[] = $scheme . '://127.0.0.1';
+            $candidates[] = $scheme . '://localhost';
+            if ($serverPort !== '') {
+                $candidates[] = $scheme . '://127.0.0.1:' . $serverPort;
+            }
+
+            $exposure = ['state' => 'unknown', 'checked' => 0, 'exposed' => [], 'hint' => 'تعذّر الفحص.'];
+            foreach (array_unique($candidates) as $candidate) {
+                // نمرّر رابط المستخدم للعرض، فقد يكون الفحص على عنوان داخلي
+                $attempt = \App\Core\Security\ExposureCheck::run($candidate, 6, $url);
+                if ($attempt['state'] === 'unknown') {
+                    continue;
+                }
+                $exposure = $attempt;
+                break;
+            }
+
+            if ($exposure['state'] === 'exposed') {
+                $securityAlert = $exposure;
+            }
+
+            $success = $exposure['state'] !== 'exposed';
         } catch (Throwable $e) {
             $errors[] = 'تعذّر إنشاء قاعدة البيانات: ' . $e->getMessage();
         }
@@ -145,6 +198,7 @@ function e(string $value): string
   }
   .alert { border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; font-size: .9rem; }
   .alert.err { background: #fdeded; color: #b91c1c; border: 1px solid #f3c6c6; }
+  .alert.warn { background: #fdf6e3; color: #92400e; border: 1px solid #f0dfae; }
   .alert.ok { background: #e9f7ee; color: #15803d; border: 1px solid #bde5c9; }
   .alert ul { margin: 6px 0 0; padding-inline-start: 20px; }
   .links { display: flex; gap: 10px; margin-top: 18px; }
@@ -162,7 +216,22 @@ function e(string $value): string
   <h1>تهيئة النسخة</h1>
   <p class="sub">خطوة واحدة تفصلك عن تشغيل القالب.</p>
 
-  <?php if ($installed && !$success): ?>
+  <?php if ($securityAlert !== null): ?>
+    <div class="alert err">
+      <strong>⛔ توقف: بياناتك مكشوفة على الإنترنت</strong>
+      <p style="margin:8px 0 0">
+        خادمك لا يقرأ ملفات <code>.htaccess</code>، لذا قاعدة البيانات وبيانات الدخول
+        قابلة للتحميل من أي شخص يعرف الرابط. <strong>أصلح هذا قبل أي شيء آخر.</strong>
+      </p>
+      <ul>
+        <?php foreach ($securityAlert['exposed'] as $item): ?>
+          <li><code><?= e($item['path']) ?></code> — <?= e($item['label']) ?> (رد <?= (int) $item['status'] ?>)</li>
+        <?php endforeach; ?>
+      </ul>
+      <pre style="white-space:pre-wrap;text-align:start;margin:12px 0 0;font-size:.82rem;line-height:1.7"><?= e($securityAlert['hint']) ?></pre>
+    </div>
+
+  <?php elseif ($installed && !$success): ?>
     <div class="alert ok">
       النسخة مهيأة بالفعل. هذه الصفحة معطّلة الآن — احذف مجلد <code>setup/</code> من السيرفر.
     </div>
@@ -190,6 +259,17 @@ function e(string $value): string
         <ul>
           <?php foreach ($errors as $error): ?>
             <li><?= e($error) ?></li>
+          <?php endforeach; ?>
+        </ul>
+      </div>
+    <?php endif; ?>
+
+    <?php if ($warnings !== []): ?>
+      <div class="alert warn">
+        <strong>تمت التهيئة مع تحذيرات:</strong>
+        <ul>
+          <?php foreach ($warnings as $warning): ?>
+            <li><?= e($warning) ?></li>
           <?php endforeach; ?>
         </ul>
       </div>

@@ -143,10 +143,10 @@ check('الجلسة صالحة بعد الدخول', ($session['json']['data']['
 
 /* CSRF */
 $noCsrf = http($base . '/api/index.php?r=admin.category.create', ['name' => 'بدون رمز']);
-check('عملية تعديل بلا CSRF مرفوضة', $noCsrf['status'] === 419, 'status=' . $noCsrf['status']);
+check('عملية تعديل بلا CSRF مرفوضة', $noCsrf['status'] === 403, 'status=' . $noCsrf['status']);
 
 $badCsrf = http($base . '/api/index.php?r=admin.category.create', ['name' => 'رمز خاطئ'], ['X-CSRF-Token: wrong']);
-check('CSRF خاطئ مرفوض', $badCsrf['status'] === 419);
+check('CSRF خاطئ مرفوض', $badCsrf['status'] === 403);
 
 /* ======================= ٢. المدير: تصنيف ======================= */
 

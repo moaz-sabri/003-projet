@@ -12,10 +12,11 @@
 ### الحالة: ✅ جاهز للنشر
 
 أُصلحت **11 ملاحظة** (منها 3 حرجة و 5 عالية). الاختبارات كلها ناجحة:
-**223 وحدة + 67 خطوة سير عمل + 49 فحص أمني + 32 فحص نشر + 29 مراجعة كود + 13 نسخ احتياطي + 32 تثبيت نظيف.**
+**236 وحدة + 67 خطوة سير عمل + 49 فحص أمني + 32 فحص نشر + 29 مراجعة كود + 13 نسخ احتياطي + 32 تثبيت نظيف.**
 
-كل ما سبق نُفِّذ **مرتين**: على PHP عادي (خادم مدمج + راوتر) وداخل حاوية Docker
-(nginx + php-fpm) — بنفس النتائج، والسجل خالٍ من الأخطاء (`0 ERROR`) بعد سير العمل الكامل.
+كل ما سبق نُفِّذ **ثلاث مرات**: على PHP عادي (خادم مدمج + راوتر)، وداخل حاوية Docker
+(nginx + php-fpm)، وداخل حاوية **Apache** — بنفس النتائج، والسجل خالٍ من الأخطاء
+(`0 ERROR`) بعد سير العمل الكامل.
 
 ### أهم 5 نقاط
 
@@ -124,6 +125,28 @@
 | 12 | **مشغّل الاختبارات كان يستبدل بيانات دخول المدير**؛ إن توقّف التشغيل في المنتصف لبقي الحساب `tester` | 🟠 عالية | توجيه الإعدادات عبر `LC_CONFIG_FILE` + تنظيف مضمون بـ `register_shutdown_function` | `6286db0` |
 | 13 | الاختبارات تنهار داخل حاوية الإنتاج: `exec()` معطّل في `php.ini` المُقوّى | 🟡 متوسطة | تخطٍّ آمن لفحص الصياغة عند غياب `exec` | `22bca96` |
 | 14 | `readme.md` بأحرف صغيرة بينما كل المراجع تستخدم `README.md` | 🟡 متوسطة | الفشل على أي نظام ملفات حسّاس لحالة الأحرف (لينكس/Docker) | `22bca96` |
+| 15 | **الرموز غير القياسية (419) تتحوّل إلى 500 على Apache** — كل رفض CSRF كان يبدو خطأ خادم | 🟠 عالية | 403 القياسي + `normalizeStatus()` ترفض أي رمز غير معتمد من IANA | `—` |
+| 16 | **صفحة التهيئة تفشل عند تعذّر توليد الأيقونات** (صلاحية مجلد) | 🟡 متوسطة | التحذير بدل إفشال التهيئة | `—` |
+| 17 | نسختان في الثانية نفسها تفشلان (`VACUUM INTO` يصطدم باسم الملف) | 🔵 منخفض | لاحقة رقمية تلقائية | `—` |
+
+###Findings من فحص Apache الحقيقي (ما بعد المراجعة)
+
+اكتُشفت ثلاثة عيوب **لا تظهر على nginx ولا على خادم PHP المدمج**،
+أي أن الاختبارات السابقة كانت ستمرّ عليها بصمت:
+
+1. **`.htaccess` قد لا يُقرأ أصلًا.** إعداد `AllowOverride None` هو الافتراضي في Apache،
+   وعنده تصبح `storage/database/app.sqlite` **قابلًا للتحميل بلا كلمة مرور**
+   (كل الطلبات وأسماء الزبائن) — والشيفرة كاملة في `bin/console`.
+   لا يوجد إصلاح داخل المشروع يعتمد عليه، لذا أضفنا **كشفًا تلقائيًا**:
+   - `ExposureCheck` يفحص المسارات الحسّاسة من الخارج.
+   - صفحة التهيئة **تحجب الإنهاء** وتشرح الحل إن كانت مكشوفة.
+   - `php bin/console security:check` + سطر في `status`.
+   - أمر `install` يخرج بخطأ ورمز خروج `1` عند الكشف.
+2. **Apache يحوّل 418/419 إلى 500** (`http_response_code()` لا يعرف الرموز غير المعتمدة).
+3. **صفحة التهيئة تفشل كليًا** إن لم تستطع كتابة مجلد الأيقونات — وهو المسار الأساسي
+   للتثبيت على الاستضافة المشتركة.
+
+**النتيجة على Apache الحقيقي:** `32/32` نشر + `67/67` سير عمل + `49/49` أمني + `محمي ✔`.
 
 ### أدوات الفحص المُضافة
 
@@ -166,8 +189,8 @@
 | **مسارات الـ API** | `api/index.php?r=<route>` — لا مسارات نظيفة، لا إعادة تسمية |
 | **أسماء المسارات** | `admin.login` `admin.session` `admin.logout` `admin.products` `admin.product.create` `admin.product.update` `admin.product.delete` `admin.product.image` `admin.category.*` `admin.locations` `admin.location.save` `admin.location.delete` `admin.orders` `admin.order` `admin.order.status` `admin.order.qr` `admin.dashboard` `admin.settings` `admin.settings.save` `admin.password` `admin.backup.create` `admin.backup.download` `admin.backups` `admin.qr` `catalog.snapshot` `product.get` `locations.list` `order.create` `order.status` `ping` |
 | **صيغة الاستجابة** | `{ "ok": true, "data": {...} }` أو `{ "ok": false, "error": { "code": "...", "message": "...", "fields": {...} } }` |
-| **رموز الأخطاء** | `unauthenticated` `csrf_failed` `validation_failed` `empty_cart` `location_required` `product_unavailable` `too_many_items` `rate_limited` `not_found` `offline` |
-| **معنى HTTP** | `200` نجاح · `201` إنشاء · `401` بلا جلسة · `403` صلاحية · `404` غير موجود · `409` تعارض · `419` CSRF · `422` خطأ تحقّق أو قاعدة عمل · `429` حد معدل · `500` خطأ غير متوقع |
+| **رموز الأخطاء** | `unauthenticated` `invalid_csrf` `validation_failed` `empty_cart` `location_required` `product_unavailable` `too_many_items` `rate_limited` `not_found` `offline` |
+| **معنى HTTP** | `200` نجاح · `201` إنشاء · `401` بلا جلسة · `403` صلاحية/رفض CSRF · `404` غير موجود · `409` تعارض · `422` خطأ تحقّق أو قاعدة عمل · `429` حد معدل · `500` خطأ غير متوقع |
 | **ترويسة التكرار** | `Idempotency-Key` + القيد الفريد `orders.idempotency_key` |
 | **بنية الجداول** | الأعمدة والأنواع والقيود والفهارس الحالية |
 | **دلالات السعر** | `price_minor` عدد صحيح، بلا كسور، بلا حساب من العميل |
@@ -194,13 +217,14 @@
 ## 8. كيفية إعادة تنفيذ المراجعة
 
 ```bash
-php tests/run.php                                  # 223 اختبار وحدة وتكامل
+php tests/run.php                                  # 236 اختبار وحدة وتكامل
 php tools/workflow-test.php http://127.0.0.1:8080  # 67 خطوة سير عمل
 php tools/security-probe.php http://127.0.0.1:8080 # 49 فحصًا أمنيًا
 php tests/http/check.php http://127.0.0.1:8080     # 32 فحص نشر
 php tools/code-review.php                          # 29 مراجعة كود وأداء وسلامة الاختبارات
 php tools/restore-test.php                         # 13 فحص نسخ احتياطي واستعادة
 php tools/clean-install-test.php                   # تثبيت نظيف من الصفر
+php bin/console security:check                    # كشف تسريب المسارات الحسّاسة
 ```
 
 **شرط الاعتماد:** كل ما سبق ناجح + السجل خالٍ من الأخطاء أثناء سير العمل

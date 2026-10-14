@@ -29,7 +29,8 @@ header('Referrer-Policy: strict-origin-when-cross-origin');
 try {
     $router->dispatch($request);
 } catch (HttpError $e) {
-    if ($e->status() === 419 || $e->status() === 401) {
+    // استجابات المصادقة لا تُخزَّن في أي وسيط
+    if (in_array($e->status(), [401, 403, 419], true)) {
         header('Cache-Control: no-store');
     }
     Response::error($e->errorCode(), $e->getMessage(), $e->status(), $e->extra());

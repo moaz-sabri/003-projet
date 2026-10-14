@@ -29,7 +29,10 @@ final class Csrf
         $sent = (string) ($request->header('X-CSRF-Token') ?? $request->input('_csrf') ?? '');
         $real = self::token();
         if ($sent === '' || !hash_equals($real, $sent)) {
-            throw new HttpError('invalid_csrf', 'رمز الحماية غير صالح. حدّث الصفحة وأعد المحاولة.', 419);
+            // ملاحظة: استخدمنا سابقًا 419 (شائع في Laravel) لكنه ليس رمز حالة معتمدًا
+// لدى IANA، فيحوّله Apache مع mod_php إلى 500. نستخدم 403 القياسي.
+// رمز الخطأ في جسم الاستجابة بقي "invalid_csrf" وهو ما يعتمد عليه العميل.
+            throw new HttpError('invalid_csrf', 'رمز الحماية غير صالح. حدّث الصفحة وأعد المحاولة.', 403);
         }
     }
 }

@@ -40,12 +40,13 @@ RUN set -eux; \
     rm -f /var/www/html/app/uploads/products/*.png /var/www/html/app/uploads/*.png; \
     rm -rf /var/www/html/.git; \
     mkdir -p /var/www/html/app/uploads/products; \
-    chown -R www-data:www-data /var/www/html/storage /var/www/html/app/uploads; \
+    chown -R www-data:www-data /var/www/html/storage /var/www/html/app/uploads /var/www/html/app/assets; \
     chmod 775 /var/www/html/storage /var/www/html/storage/database \
                 /var/www/html/storage/uploads /var/www/html/storage/backups \
                 /var/www/html/storage/logs /var/www/html/storage/tmp \
                 /var/www/html/storage/config \
-                /var/www/html/app/uploads /var/www/html/app/uploads/products
+                /var/www/html/app/uploads /var/www/html/app/uploads/products \
+                /var/www/html/app/assets
 
 EXPOSE 80
 

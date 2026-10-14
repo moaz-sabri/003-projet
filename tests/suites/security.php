@@ -99,6 +99,47 @@ return function (): void {
     $missing = new Request([], [], [], ['REQUEST_METHOD' => 'POST']);
     Assert::throws(fn() => Csrf::verify($missing), HttpError::class, 'غياب رمز CSRF مرفوض');
 
+    // خطأ سابق: استُخدم الرمز 419 وهو غير معتمد لدى IANA، فيحوّله
+    // Apache مع mod_php إلى 500 فيختفي سبب الرفض ونعرفه كخطأ خادم.
+    try {
+        Csrf::verify($missing);
+        Assert::same('يجب أن يرمي استثناءً', 'لم يرمِ', 'رفض CSRF');
+    } catch (HttpError $e) {
+        Assert::same('invalid_csrf', $e->errorCode(), 'رمز خطأ CSRF ثابت');
+        Assert::same(403, $e->status(), 'CSRF يرجع 403 القياسي لا 419');
+    }
+
+    // كل رموز الحالة التي يستخدمها المشروع يجب أن تكون معتمدة من IANA،
+    // وإلا حوّلها خادم مثل Apache إلى 500.
+    $source = (string) file_get_contents(BASE_PATH . '/src/Core/Http/Response.php');
+    Assert::contains($source, 'STANDARD_STATUSES', 'قائمة الرموز المعتمدة معرّفة');
+    Assert::contains($source, 'normalizeStatus', 'توجد دالة توحيد رموز الحالة');
+
+    $csrfSource = (string) file_get_contents(BASE_PATH . '/src/Core/Security/Csrf.php');
+    Assert::false(
+        (bool) preg_match('/,\s*419\s*\)/', $csrfSource),
+        'لا يُمرَّر الرمز غير القياسي 419 إلى HttpError'
+    );
+
+    /* (5.1) كشف تسريب المسارات الحسّاسة ----------------------------------- */
+    Assert::group('الأمان — كشف تسريب المسارات الحسّاسة');
+
+    $paths = \App\Core\Security\ExposureCheck::SENSITIVE_PATHS;
+    Assert::true(isset($paths['storage/database/app.sqlite']), 'قاعدة البيانات ضمن الفحص');
+    Assert::true(isset($paths['storage/config/local.php']), 'ملف بيانات الدخول ضمن الفحص');
+    Assert::true(isset($paths['src/bootstrap.php']), 'شيفرة الخادم ضمن الفحص');
+    Assert::greater(count($paths), 3, 'الفحص يغطي عدة مسارات حسّاسة');
+
+    // رابط غير صالح لا يُنتج إنذارًا كاذبًا
+    $invalid = \App\Core\Security\ExposureCheck::run('ليس-رابطًا');
+    Assert::same('unknown', $invalid['state'], 'رابط غير صالح يُصنَّف غير محدد');
+    Assert::same([], $invalid['exposed'], 'لا إنذار على رابط غير صالح');
+
+    // خادم لا يستجب يجب ألّا يُعتبر مكشوفًا
+    $unreachable = \App\Core\Security\ExposureCheck::run('http://127.0.0.1:1', 2);
+    Assert::same('unknown', $unreachable['state'], 'خادم غير متاح يُصنَّف غير محدد لا مكشوف');
+    Assert::false($unreachable['state'] === 'exposed', 'لا إنذار كاذب على خادم غير متاح');
+
     /* (6) تحديد محاولات تسجيل الدخول ------------------------------------- */
     Database::delete('login_attempts', '1 = 1');
     $request = new Request([], [], [], ['REMOTE_ADDR' => '10.0.0.99', 'REQUEST_METHOD' => 'POST']);

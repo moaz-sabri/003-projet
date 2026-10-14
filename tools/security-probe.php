@@ -163,7 +163,7 @@ probe('تجديد معرّف الجلسة بعد كل دخول', $sessionAfter !
 $csrf = $relogin['json']['data']['csrf'] ?? '';
 probe('رمز CSRF يتغير مع كل جلسة', $csrf !== '', 'الرمز فارغ');
 $oldTokenProbe = http($base . '/api/index.php?r=admin.category.create', ['name' => 'ب الرمز القديم'], ['X-CSRF-Token: ' . str_repeat('0', 64)]);
-probe('الرمز القديم/المزيف مرفوض', $oldTokenProbe['status'] === 419, 'status=' . $oldTokenProbe['status']);
+probe('الرمز القديم/المزيف مرفوض', $oldTokenProbe['status'] === 403, 'status=' . $oldTokenProbe['status']);
 
 $emptyPass = http($base . '/api/index.php?r=admin.login', ['username' => 'admin', 'password' => '']);
 probe('كلمة مرور فارغة مرفوضة', $emptyPass['status'] === 422, 'status=' . $emptyPass['status']);
@@ -178,10 +178,10 @@ probe('رسالة الخطأ واحدة لاسم مستخدم خاطئ وكلم�
 section('٤. حماية CSRF');
 
 $noToken = http($base . '/api/index.php?r=admin.category.create', ['name' => 'هجوم']);
-probe('إنشاء بدون رمز CSRF مرفوض', $noToken['status'] === 419, 'status=' . $noToken['status']);
+probe('إنشاء بدون رمز CSRF مرفوض', $noToken['status'] === 403, 'status=' . $noToken['status']);
 
 $wrongToken = http($base . '/api/index.php?r=admin.category.create', ['name' => 'هجوم'], ['X-CSRF-Token: ' . str_repeat('a', 64)]);
-probe('رمز CSRF خاطئ مرفوض', $wrongToken['status'] === 419, 'status=' . $wrongToken['status']);
+probe('رمز CSRF خاطئ مرفوض', $wrongToken['status'] === 403, 'status=' . $wrongToken['status']);
 
 $valid = http($base . '/api/index.php?r=admin.category.create', ['name' => 'تصنيف الفحص الأمني'], ['X-CSRF-Token: ' . $csrf]);
 probe('طلب شرعي برمز صحيح يعمل', in_array($valid['status'], [200, 201], true), 'status=' . $valid['status']);
@@ -289,7 +289,7 @@ probe('واجهات الإدارة محمية بعد الخروج', $afterLogout
 
 $editAfterLogout = http($base . '/api/index.php?r=admin.category.create', ['name' => 'بعد الخروج']);
 probe('لا يمكن التعديل بعد الخروج',
-    in_array($editAfterLogout['status'], [401, 419], true), 'status=' . $editAfterLogout['status']);
+    in_array($editAfterLogout['status'], [401, 403], true), 'status=' . $editAfterLogout['status']);
 
 $downloadAfter = http($base . '/api/index.php?r=admin.backup.download&name=backup-20260101-000000.sqlite');
 probe('تنزيل نسخة احتياطية محمي', $downloadAfter['status'] === 401, 'status=' . $downloadAfter['status']);

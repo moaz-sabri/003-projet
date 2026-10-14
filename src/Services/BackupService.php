@@ -27,6 +27,19 @@ final class BackupService
         $name   = 'backup-' . date('Ymd-His') . '.sqlite';
         $target = $dir . '/' . $name;
 
+        // نسختان في الثانية نفسها تصطدمان في نفس الاسم، و VACUUM INTO
+        // يفشل عند وجود الملف مسبقًا — نضيف لاحقة رقمية عند الحاجة.
+        if (is_file($target)) {
+            for ($i = 2; $i < 100; $i++) {
+                $candidate = $dir . '/backup-' . date('Ymd-His') . '-' . $i . '.sqlite';
+                if (!is_file($candidate)) {
+                    $name   = 'backup-' . date('Ymd-His') . '-' . $i . '.sqlite';
+                    $target = $candidate;
+                    break;
+                }
+            }
+        }
+
         \App\Core\Database::pdo()->exec("VACUUM INTO '" . str_replace("'", "''", $target) . "'");
 
         @chmod($target, 0600);
