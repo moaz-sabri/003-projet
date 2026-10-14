@@ -72,7 +72,7 @@ return function (): void {
     Assert::contains($rootHtaccess, 'nosniff', 'ترويسة X-Content-Type-Options مضبوطة');
 
     $nginx = (string) file_get_contents(BASE_PATH . '/docker/nginx.conf');
-    Assert::contains($nginx, 'location ~ ^/(src|storage|bin|tests|docker|setup)', 'nginx يحجب المسارات الحساسة');
+    Assert::contains($nginx, 'location ~ ^/(src|storage|bin|tests|tools|docs|docker|setup)(/|$)', 'nginx يحجب المسارات الحساسة');
     Assert::contains($nginx, 'app/uploads/.*\\.(php', 'nginx يمنع تنفيذ السكربتات داخل مجلد الرفع');
 
     $uploadsHtaccess = (string) file_get_contents(BASE_PATH . '/app/uploads/.htaccess');

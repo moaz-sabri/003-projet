@@ -9,17 +9,22 @@
    - لا يوجد طابور إرسال: الطلب دون اتصال لا يُرسل ولا يُؤجَّل.
    ========================================================================== */
 
-const VERSION = 'v1.1.0';
+const VERSION = 'v1.2.0';
 const SHELL_CACHE = `lc-shell-${VERSION}`;
 const DATA_CACHE = `lc-data-${VERSION}`;
 
-// جذر التطبيق: /app/ نسبةً إلى جذر الموقع
+// جذر التطبيق: هو نفسه جذر الموقع ("/")، وملفات الواجهة داخل /app/
 const SCOPE = self.registration.scope;
 const APP_BASE = new URL('./app/', SCOPE).pathname;
 
+// ملفات هيكل الواجهة.
+// ملاحظة: صفحة الهيكل نفسها هي جذر الموقع ("/") فهي لم تعد تُقدَّم من
+// app/index.html — الروابط النظيفة مثل /cart و /checkout تبدأ من الجذر.
+
+const shellUrl = SCOPE;
+
 const SHELL_ASSETS = [
-  APP_BASE,
-  APP_BASE + 'index.html',
+  SCOPE,
   APP_BASE + 'css/app.css',
   APP_BASE + 'js/api.js',
   APP_BASE + 'js/store.js',
@@ -167,7 +172,7 @@ async function staleWhileRevalidate(request, cacheName) {
 
   // لا اتصال ولا نسخة مخزنة
   if (request.mode === 'navigate') {
-    const shell = await cache.match(APP_BASE + 'index.html');
+    const shell = await cache.match(shellUrl);
     if (shell) return shell;
   }
   return new Response(

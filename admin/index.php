@@ -12,12 +12,21 @@ require __DIR__ . '/../src/bootstrap.php';
 use App\Config\ProjectConfig;
 use App\Core\RuntimeSettings;
 use App\Core\Security\Auth;
+use App\Core\Web\Paths;
 
 Auth::start();
 
 $authenticated = Auth::check();
 $settings      = RuntimeSettings::publicPayload();
 $appName       = $settings['app_name'] ?: ProjectConfig::DEFAULT_APP_NAME;
+
+/*
+ * مسارات مطلقة تحسب من موضع السكربت، فتعمل اللوحة على جذر النطاق أو داخل
+ * مجلد فرعي، ولا تنكسر عند فتح /admin بلا شرطة مائلة.
+ */
+$homeUrl   = Paths::home(1);   // واجهة الزبون على الجذر (بلا app/index.html)
+$assetBase = Paths::shop('assets/icons/', 1);
+$version   = ProjectConfig::VERSION;
 
 // Nonce للاستخدامات المضمّنة (سياسة CSP تبقى صارمة)
 $nonce = base64_encode(random_bytes(16));
@@ -50,7 +59,7 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>لوحة الإدارة — <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></title>
-  <link rel="icon" href="../app/assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="<?= htmlspecialchars($assetBase . 'icon.svg', ENT_QUOTES, 'UTF-8') ?>" type="image/svg+xml">
   <link rel="stylesheet" href="assets/admin.css?v=<?= (int) @filemtime(__DIR__ . '/assets/admin.css') ?>">
   <style nonce="<?= htmlspecialchars($nonce, ENT_QUOTES, 'UTF-8') ?>">
     /* ألوان الحالات — من ProjectConfig */
@@ -63,7 +72,7 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
 <div class="login-screen" id="login-screen" <?= $authenticated ? 'hidden' : '' ?>>
   <form class="login-card" id="login-form" autocomplete="on">
     <div class="login-brand">
-      <img src="../app/assets/icons/icon-192.png" alt="" width="56" height="56">
+      <img src="<?= htmlspecialchars($assetBase . 'icon-192.png', ENT_QUOTES, 'UTF-8') ?>" alt="" width="56" height="56">
       <h1>لوحة الإدارة</h1>
       <p><?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></p>
     </div>
@@ -90,7 +99,7 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-      <img src="../app/assets/icons/icon-192.png" alt="" width="36" height="36">
+      <img src="<?= htmlspecialchars($assetBase . 'icon-192.png', ENT_QUOTES, 'UTF-8') ?>" alt="" width="36" height="36">
       <div>
         <strong id="side-app-name"><?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></strong>
         <small>لوحة الإدارة</small>
@@ -99,35 +108,35 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
 
     <nav class="side-nav">
       <button class="side-link is-active" data-view="dashboard">
-        <span class="ico">◫</span> الرئيسية
+        <span class="ico" aria-hidden="true">◫</span> الرئيسية
       </button>
       <button class="side-link" data-view="orders">
-        <span class="ico">☰</span> الطلبات
+        <span class="ico" aria-hidden="true">☰</span> الطلبات
         <span class="badge-count" id="nav-orders-count" hidden>0</span>
       </button>
       <button class="side-link" data-view="products">
-        <span class="ico">✦</span> المنتجات
+        <span class="ico" aria-hidden="true">✦</span> المنتجات
       </button>
       <button class="side-link" data-view="categories">
-        <span class="ico">▤</span> التصنيفات
+        <span class="ico" aria-hidden="true">▤</span> التصنيفات
       </button>
       <button class="side-link" data-view="locations">
-        <span class="ico">⌖</span> المواقع وQR
+        <span class="ico" aria-hidden="true">⌖</span> المواقع وQR
       </button>
       <button class="side-link" data-view="settings">
-        <span class="ico">⚙</span> إعدادات العرض
+        <span class="ico" aria-hidden="true">⚙</span> إعدادات العرض
       </button>
       <button class="side-link" data-view="security">
-        <span class="ico">⛨</span> الأمان والنسخ
+        <span class="ico" aria-hidden="true">⛨</span> الأمان والنسخ
       </button>
     </nav>
 
     <div class="sidebar-foot">
-      <a class="side-link" href="../app/index.html" target="_blank" rel="noopener">
-        <span class="ico">↗</span> عرض الموقع
+      <a class="side-link" href="<?= htmlspecialchars($homeUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">
+        <span class="ico" aria-hidden="true">↗</span> عرض الموقع
       </a>
       <button class="side-link" id="logout-button">
-        <span class="ico">⏻</span> تسجيل الخروج
+        <span class="ico" aria-hidden="true">⏻</span> تسجيل الخروج
       </button>
     </div>
   </aside>
@@ -260,7 +269,7 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
 </aside>
 
 <div class="modal-backdrop" id="modal-backdrop" hidden>
-  <div class="modal" role="dialog" aria-modal="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <header class="modal-head">
       <h3 id="modal-title">تحرير</h3>
       <button class="icon-btn" id="modal-close" aria-label="إغلاق">×</button>
@@ -273,14 +282,36 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
   </div>
 </div>
 
-<div class="toast" id="toast" hidden></div>
+<!-- نافذة التأكيد والسؤال (بديل أنيق عن confirm/prompt في المتصفح) -->
+<div class="modal-backdrop" id="confirm-backdrop" hidden>
+  <div class="modal modal-sm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+    <header class="modal-head">
+      <h3 id="confirm-title">تأكيد</h3>
+      <button class="icon-btn" id="confirm-x" aria-label="إغلاق">×</button>
+    </header>
+    <div class="modal-body">
+      <p class="confirm-text" id="confirm-text"></p>
+      <div class="field" id="confirm-input-field" hidden>
+        <label for="confirm-input" id="confirm-input-label"></label>
+        <input type="text" id="confirm-input" maxlength="200">
+      </div>
+    </div>
+    <footer class="modal-foot">
+      <button class="btn btn-ghost" id="confirm-cancel" type="button">إلغاء</button>
+      <button class="btn btn-primary" id="confirm-ok" type="button">تأكيد</button>
+    </footer>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toast-wrap" role="status" aria-live="polite"></div>
 
 <script type="application/json" id="app-config"><?= json_encode([
-    'api'          => '../api/index.php',
+    'api'          => Paths::api(1),
+    'home'         => $homeUrl,
     'csrf'         => Auth::token(),
     'authenticated'=> $authenticated,
     'username'     => Auth::username(),
-    'version'      => '1.0.0',
+    'version'      => $version,
 ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script src="assets/admin.js?v=<?= (int) @filemtime(__DIR__ . '/assets/admin.js') ?>"></script>
 </body>

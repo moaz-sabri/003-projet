@@ -15,6 +15,7 @@ use App\Core\Http\Validator;
 use App\Repositories\OrderRepository;
 use App\Services\CatalogService;
 use App\Services\OrderService;
+use App\Services\QrService;
 
 /** قراءة جسم الطلب: JSON أو form-encoded. */
 $readBody = static function (Request $request): array {
@@ -83,9 +84,10 @@ $router->post('order.create', function (Request $request) use ($readBody): void 
     $service = new OrderService();
     $order   = $service->create($payload, $request);
 
+    // رابط متابعة الطلب يُبنى من QrService (مصدر واحد لكل روابط الموقع)
     $baseUrl = app_config('app.base_url', '');
     $trackUrl = ProjectConfig::feature('order_tracking') && $baseUrl !== ''
-        ? rtrim($baseUrl, '/') . '/app/index.html?t=' . $order['tracking_token']
+        ? (new QrService())->orderUrl($baseUrl, $order['tracking_token'])
         : null;
 
     Response::json([

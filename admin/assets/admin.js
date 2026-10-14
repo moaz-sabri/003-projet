@@ -9,9 +9,19 @@
   // إعدادات الصفحة تُمرَّر كبيانات JSON (تبقى متوافقة مع سياسة CSP الصارمة)
   var CFG = (function () {
     var node = document.getElementById('app-config');
-    if (!node) return { api: '../api/index.php' };
-    try { return JSON.parse(node.textContent || '{}'); } catch (e) { return { api: '../api/index.php' }; }
+    if (!node) return { api: '/api/index.php' };
+    try { return JSON.parse(node.textContent || '{}'); } catch (e) { return { api: '/api/index.php' }; }
   })();
+
+  /* أيقونات الرسائل — SVG مضمّن (سياسة CSP تمنع أي مورد خارجي) */
+  var TOAST_ICONS = {
+    success: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+    error:   '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M12 7.5v5m0 3h.01M12 3.5 2.6 19a1.4 1.4 0 0 0 1.2 2.1h16.4a1.4 1.4 0 0 0 1.2-2.1L12 3.5Z"/></svg>',
+    warn:    '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 8v4.5M12 15.5h.01"/></svg>',
+    info:    '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 11v5.5M12 7.8h.01"/></svg>'
+  };
+
+  var TOAST_DURATION = { success: 2800, info: 3200, warn: 4000, error: 4800 };
 
   var state = {
     view: 'dashboard',
@@ -112,17 +122,167 @@
     el.classList.toggle('hidden', hidden);
   }
 
-  function toast(message, type) {
-    var el = $('toast');
-    el.textContent = message;
-    el.style.background = type === 'error' ? 'var(--danger)' : 'var(--ink)';
-    setHidden(el, false);
-    clearTimeout(toast.timer);
-    toast.timer = setTimeout(function () { setHidden(el, true); }, 3000);
+  function toast(message, type, options) {
+    var wrap = $('toast-wrap');
+    if (!wrap) return;
+
+    if (type && typeof type === 'object') {
+      options = type;
+      type = options.type || 'info';
+    }
+    options = options || {};
+    type = TOAST_ICONS[type] ? type : 'info';
+
+    // ثلاث رسائل كحد أقصى حتى لا تتكدس الشاشة
+    var live = wrap.querySelectorAll('.toast');
+    while (live.length >= 3) {
+      dismissToast(live[0]);
+      live = wrap.querySelectorAll('.toast');
+    }
+
+    var duration = options.duration || (options.action ? 6500 : TOAST_DURATION[type]);
+
+    var el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    el.innerHTML =
+      '<span class="toast-icon">' + TOAST_ICONS[type] + '</span>' +
+      '<span class="toast-text"></span>' +
+      '<span class="toast-bar" style="animation-duration:' + duration + 'ms"></span>';
+    el.querySelector('.toast-text').textContent = message;
+
+    if (options.action && options.action.label) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'toast-action';
+      button.textContent = options.action.label;
+      button.addEventListener('click', function () {
+        clearTimeout(timer);
+        dismissToast(el);
+        options.action.onClick();
+      });
+      el.insertBefore(button, el.querySelector('.toast-bar'));
+    }
+
+    var timer = setTimeout(function () { dismissToast(el); }, duration);
+    el.addEventListener('click', function (event) {
+      if (event.target.closest('.toast-action')) return;
+      clearTimeout(timer);
+      dismissToast(el);
+    });
+
+    wrap.appendChild(el);
   }
 
-  function confirmAction(message) {
-    return global.confirm(message);
+  function dismissToast(el) {
+    if (!el || el.dataset.leaving) return;
+    el.dataset.leaving = '1';
+    el.classList.add('leaving');
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * نافذة التأكيد: بديل confirm/prompt في المتصفح.
+   * السبب: النوافذ الأصلية لا تطابق هوية اللوحة، ولا تُشرح ما سيحدث،
+   * ولا يمكن تنسيق نصوصها بالعربية.
+   * ------------------------------------------------------------------ */
+  function ask(options) {
+    return new Promise(function (resolve) {
+      $('confirm-title').textContent = options.title || 'تأكيد';
+      $('confirm-text').textContent = options.message || '';
+
+      var field = $('confirm-input-field');
+      var input = $('confirm-input');
+      field.hidden = !options.input;
+      if (options.input) {
+        $('confirm-input-label').textContent = options.input.label || '';
+        input.value = options.input.value || '';
+        input.placeholder = options.input.placeholder || '';
+      }
+
+      var ok = $('confirm-ok');
+      ok.textContent = options.confirmText || 'تأكيد';
+      ok.className = 'btn ' + (options.tone === 'danger' ? 'btn-danger' : 'btn-primary');
+
+      var backdrop = $('confirm-backdrop');
+      backdrop.hidden = false;
+      if (options.input) setTimeout(function () { input.focus(); }, 60);
+      else setTimeout(function () { ok.focus(); }, 60);
+
+      function close(result) {
+        backdrop.hidden = true;
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      }
+
+      function onKey(event) {
+        if (event.key === 'Escape') close(null);
+      }
+
+      function accept() {
+        close(options.input ? String(input.value || '').trim() : true);
+      }
+
+      ok.onclick = accept;
+      $('confirm-cancel').onclick = function () { close(null); };
+      $('confirm-x').onclick = function () { close(null); };
+      backdrop.onclick = function (event) {
+        if (event.target.id === 'confirm-backdrop') close(null);
+      };
+      input.onkeydown = function (event) { if (event.key === 'Enter') accept(); };
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
+  /** نسخ نص إلى الحافظة مع بديل للمتصفحات القديمة أو السياقات غير الآمنة. */
+  function copyToClipboard(text) {
+    if (global.navigator && navigator.clipboard && global.isSecureContext) {
+      return navigator.clipboard.writeText(text).catch(function () { return fallbackCopy(text); });
+    }
+    return Promise.resolve(fallbackCopy(text));
+  }
+
+  function fallbackCopy(text) {
+    var area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(area);
+    if (!ok) toast('تعذّر النسخ تلقائيًا — انسخ الرابط يدويًا.', 'warn');
+    return ok;
+  }
+
+  function confirmAction(message, options) {
+    options = options || {};
+    return ask({
+      title: options.title || 'تأكيد العملية',
+      message: message,
+      confirmText: options.confirmText || 'تأكيد',
+      tone: options.tone || 'danger'
+    });
+  }
+
+  /** زر أثناء تنفيذ عملية: يمنع التكرار ويعرض مؤشرًا بدل النص. */
+  function setLoading(button, loading, label) {
+    if (!button) return;
+    if (loading) {
+      if (!button.dataset.idleLabel) button.dataset.idleLabel = button.textContent;
+      button.disabled = true;
+      button.classList.add('is-loading');
+      button.textContent = label || 'جارٍ التنفيذ…';
+    } else {
+      button.disabled = false;
+      button.classList.remove('is-loading');
+      if (button.dataset.idleLabel) {
+        button.textContent = button.dataset.idleLabel;
+        delete button.dataset.idleLabel;
+      }
+    }
   }
 
   /* ============================ المصادقة ============================ */
@@ -142,8 +302,8 @@
   function login(event) {
     event.preventDefault();
     var btn = $('login-submit');
-    btn.disabled = true;
-    btn.textContent = 'جارٍ التحقق…';
+    var username = $('login-username').value.trim();
+    setLoading(btn, true, 'جارٍ التحقق…');
     setHidden($('login-error'), true);
 
     api('admin.login', {
@@ -151,23 +311,34 @@
       body: { username: $('login-username').value, password: $('login-password').value }
     }).then(function (data) {
       state.csrf = data.csrf;
+      CFG.username = data.username || username;
       $('login-password').value = '';
       showApp();
       boot();
+      toast('مرحبًا ' + (CFG.username ? CFG.username + ' — ' : '') + 'تم تسجيل الدخول بنجاح.', 'success');
     }).catch(function (error) {
       $('login-error').textContent = error.message;
       setHidden($('login-error'), false);
+      toast(error.message, 'error');
     }).finally(function () {
-      btn.disabled = false;
-      btn.textContent = 'تسجيل الدخول';
+      setLoading(btn, false);
     });
   }
 
   function logout() {
-    api('admin.logout', { method: 'POST' }).catch(function () { }).finally(function () {
-      state.csrf = '';
-      stopAutoRefresh();
-      showLogin();
+    confirmAction('هل تريد تسجيل الخروج من اللوحة؟', {
+      title: 'تسجيل الخروج',
+      confirmText: 'خروج',
+      tone: 'default'
+    }).then(function (ok) {
+      if (!ok) return;
+      api('admin.logout', { method: 'POST' }).catch(function () { }).finally(function () {
+        state.csrf = '';
+        stopAutoRefresh();
+        showLogin();
+        $('login-password').value = '';
+        toast('تم تسجيل الخروج بنجاح.', 'info');
+      });
     });
   }
 
@@ -351,19 +522,35 @@
 
   function changeStatus(id, status) {
     if (!id) return;
-    var note = '';
+
+    var confirmAction_ = function (note) {
+      return api('admin.order.status', { method: 'POST', body: { id: id, status: status, note: note || '' } })
+        .then(function (data) {
+          var label = statusLabel(status);
+          toast('تم تحديث حالة الطلب #' + (data.order ? data.order.number : '') + ' إلى: ' + label, 'success');
+          closeDrawer();
+          state.stats = data.stats;
+          updateOrderBadge();
+          if (state.view === 'orders') loadOrders(); else loadDashboard();
+        });
+    };
+
     if (status === 'cancelled') {
-      note = global.prompt('سبب الإلغاء (اختياري):', '') || '';
+      // سبب الإلغاء اختياري — نافذة واحدة تجمع السؤال والتأكيد
+      ask({
+        title: 'إلغاء الطلب',
+        message: 'سيُعلَن الطلب كملغى. يمكنك كتابة سبب (اختياري) للمتابعة.',
+        input: { label: 'سبب الإلغاء (اختياري)', placeholder: 'مثال: الزبون غادر' },
+        confirmText: 'إلغاء الطلب',
+        tone: 'danger'
+      }).then(function (note) {
+        if (note === null) return;
+        confirmAction_(note);
+      }).catch(function (error) { toast(error.message, 'error'); });
+      return;
     }
-    api('admin.order.status', { method: 'POST', body: { id: id, status: status, note: note } })
-      .then(function (data) {
-        toast('تم تحديث حالة الطلب.');
-        closeDrawer();
-        state.stats = data.stats;
-        updateOrderBadge();
-        if (state.view === 'orders') loadOrders(); else loadDashboard();
-      })
-      .catch(function (error) { toast(error.message, 'error'); });
+
+    confirmAction_('').catch(function (error) { toast(error.message, 'error'); });
   }
 
   function renderStatusFilter() {
@@ -433,25 +620,31 @@
           sort_order: parseInt($('f-sort').value || '0', 10),
           is_active: $('f-active').checked ? 1 : 0
         };
-        if (!payload.name) { toast('اكتب اسم التصنيف.', 'error'); return false; }
+        if (!payload.name) { toast('اكتب اسم التصنيف قبل الحفظ.', 'error'); return false; }
 
         return api(id ? 'admin.category.update' : 'admin.category.create', { method: 'POST', body: payload })
           .then(function (data) {
             state.categories = data.categories;
             renderCategories();
-            toast('تم حفظ التصنيف.');
+            toast(id ? 'تم حفظ تعديلات التصنيف «' + payload.name + '».' : 'أُضيف التصنيف «' + payload.name + '».', 'success');
           });
       });
   }
 
   function deleteCategory(id) {
     var cat = state.categories.filter(function (c) { return c.id === id; })[0];
-    if (!confirmAction('حذف التصنيف «' + cat.name + '»؟ ستبقى المنتجات بدون تصنيف.')) return;
+    if (!cat) return;
 
-    api('admin.category.delete', { method: 'POST', body: { id: id } }).then(function (data) {
-      state.categories = data.categories;
-      renderCategories();
-      toast('تم حذف التصنيف.');
+    confirmAction('سيُحذف التصنيف «' + cat.name + '» وتبقى منتجاته بدون تصنيف.', {
+      title: 'حذف تصنيف',
+      confirmText: 'حذف نهائي'
+    }).then(function (ok) {
+      if (!ok) return;
+      return api('admin.category.delete', { method: 'POST', body: { id: id } }).then(function (data) {
+        state.categories = data.categories;
+        renderCategories();
+        toast('تم حذف التصنيف «' + cat.name + '».', 'success');
+      });
     }).catch(function (error) { toast(error.message, 'error'); });
   }
 
@@ -459,12 +652,16 @@
     var ids = state.categories.map(function (c) { return c.id; });
     var index = ids.indexOf(id);
     var target = index + direction;
-    if (index < 0 || target < 0 || target >= ids.length) return;
+    if (index < 0 || target < 0 || target >= ids.length) {
+      toast(direction < 0 ? 'هذا التصنيف في أعلى القائمة.' : 'هذا التصنيف في أسفل القائمة.', 'info');
+      return;
+    }
     ids.splice(target, 0, ids.splice(index, 1)[0]);
 
     api('admin.categories.reorder', { method: 'POST', body: { ids: ids } }).then(function (data) {
       state.categories = data.categories;
       renderCategories();
+      toast('تم تحديث ترتيب التصنيفات.', 'success');
     }).catch(function (error) { toast(error.message, 'error'); });
   }
 
@@ -559,7 +756,7 @@
       (extraFields ? '<h4 class="section-title bordered">حقول إضافية</h4>' + extraFields : ''),
       function () {
         var name = $('p-name').value.trim();
-        if (!name) { toast('اكتب اسم المنتج.', 'error'); return false; }
+        if (!name) { toast('اكتب اسم المنتج قبل الحفظ.', 'error'); return false; }
 
         var extra = {};
         document.querySelectorAll('[data-extra]').forEach(function (el) {
@@ -596,19 +793,25 @@
         }).then(function (data) {
           state.products = data.products;
           renderProducts();
-          toast('تم حفظ المنتج.');
+          toast(id ? 'تم حفظ تعديلات المنتج «' + name + '».' : 'أُضيف المنتج «' + name + '».', 'success');
         });
       });
   }
 
   function deleteProduct(id) {
     var product = state.products.filter(function (p) { return p.id === id; })[0];
-    if (!confirmAction('حذف المنتج «' + product.name + '» نهائيًا؟ الطلبات السابقة تحتفظ باسمه وسعره.')) return;
+    if (!product) return;
 
-    api('admin.product.delete', { method: 'POST', body: { id: id } }).then(function (data) {
-      state.products = data.products;
-      renderProducts();
-      toast('تم حذف المنتج.');
+    confirmAction('سيُحذف المنتج «' + product.name + '» نهائيًا. الطلبات السابقة تحتفظ باسمه وسعره.', {
+      title: 'حذف منتج',
+      confirmText: 'حذف نهائي'
+    }).then(function (ok) {
+      if (!ok) return;
+      return api('admin.product.delete', { method: 'POST', body: { id: id } }).then(function (data) {
+        state.products = data.products;
+        renderProducts();
+        toast('تم حذف المنتج «' + product.name + '».', 'success');
+      });
     }).catch(function (error) { toast(error.message, 'error'); });
   }
 
@@ -649,6 +852,7 @@
         '<div class="qr-url">' + escapeHtml(location.qr_url) + '</div>' +
         '<div class="qr-actions">' +
           '<button class="btn btn-ghost btn-sm" data-loc-edit="' + location.id + '">تعديل</button>' +
+          '<button class="btn btn-ghost btn-sm" data-loc-copy="' + escapeHtml(location.qr_url) + '">نسخ الرابط</button>' +
           '<a class="btn btn-ghost btn-sm" href="' + escapeHtml(qr) + '" target="_blank" rel="noopener">فتح الرمز</a>' +
           '<button class="btn btn-ghost btn-sm" data-loc-print="' + escapeHtml(location.code) + '">طباعة</button>' +
           '<button class="btn btn-ghost btn-sm" data-loc-del="' + location.id + '">حذف</button>' +
@@ -686,24 +890,30 @@
           sort_order: parseInt($('l-sort').value || '0', 10),
           is_active: $('l-active').checked ? 1 : 0
         };
-        if (!payload.name) { toast('اكتب اسم الموقع.', 'error'); return false; }
+        if (!payload.name) { toast('اكتب اسم الموقع قبل الحفظ.', 'error'); return false; }
 
         return api('admin.location.save', { method: 'POST', body: payload }).then(function (data) {
           state.locations = data.locations;
           renderLocations();
-          toast('تم حفظ الموقع.');
+          toast(id ? 'تم حفظ تعديلات الموقع «' + payload.name + '».' : 'أُضيف الموقع «' + payload.name + '».', 'success');
         });
       });
   }
 
   function deleteLocation(id) {
     var location = state.locations.filter(function (l) { return l.id === id; })[0];
-    if (!confirmAction('حذف «' + location.name + '»؟ الطلبات السابقة تحتفظ باسمه.')) return;
+    if (!location) return;
 
-    api('admin.location.delete', { method: 'POST', body: { id: id } }).then(function (data) {
-      state.locations = data.locations;
-      renderLocations();
-      toast('تم حذف الموقع.');
+    confirmAction('سيُحذف الموقع «' + location.name + '» ورمز QR الخاص به. الطلبات السابقة تحتفظ باسمه.', {
+      title: 'حذف موقع',
+      confirmText: 'حذف نهائي'
+    }).then(function (ok) {
+      if (!ok) return;
+      return api('admin.location.delete', { method: 'POST', body: { id: id } }).then(function (data) {
+        state.locations = data.locations;
+        renderLocations();
+        toast('تم حذف الموقع «' + location.name + '».', 'success');
+      });
     }).catch(function (error) { toast(error.message, 'error'); });
   }
 
@@ -743,6 +953,8 @@
 
     form.onsubmit = function (event) {
       event.preventDefault();
+      var btn = form.querySelector('button[type="submit"]');
+      setLoading(btn, true, 'جارٍ الحفظ…');
       var fd = new FormData();
       ['app_name:s-name', 'app_tagline:s-tagline', 'welcome_message:s-welcome',
        'contact_phone:s-phone', 'contact_instagram:s-instagram'].forEach(function (pair) {
@@ -760,8 +972,9 @@
         state.settings = data.settings;
         renderSettingsForm();
         renderBrandPreview();
-        toast('تم حفظ الإعدادات.');
-      }).catch(function (error) { toast(error.message, 'error'); });
+        toast('تم حفظ الإعدادات. تظهر التغييرات في واجهة الزبون مباشرة.', 'success');
+      }).catch(function (error) { toast(error.message, 'error'); })
+        .finally(function () { setLoading(btn, false); });
     };
 
     renderBrandPreview();
@@ -813,6 +1026,7 @@
   function changePassword(event) {
     event.preventDefault();
     var alert = $('password-error');
+    var btn = $('password-form').querySelector('button[type="submit"]');
     setHidden(alert, true);
 
     var current = $('pw-current').value;
@@ -820,28 +1034,32 @@
     if (next !== $('pw-confirm').value) {
       alert.textContent = 'كلمتا المرور غير متطابقتين.';
       setHidden(alert, false);
+      toast('كلمتا المرور غير متطابقتين.', 'error');
       return;
     }
 
+    setLoading(btn, true, 'جارٍ التحديث…');
     api('admin.password', { method: 'POST', body: { current_password: current, new_password: next } })
       .then(function () {
         $('password-form').reset();
-        toast('تم تغيير كلمة المرور.');
+        toast('تم تغيير كلمة المرور. استخدمها عند الدخول القادم.', 'success');
       })
       .catch(function (error) {
         alert.textContent = error.message;
         setHidden(alert, false);
-      });
+        toast(error.message, 'error');
+      })
+      .finally(function () { setLoading(btn, false); });
   }
 
   function createBackup() {
     var btn = $('backup-create');
-    btn.disabled = true;
+    setLoading(btn, true, 'جارٍ الإنشاء…');
     api('admin.backup.create', { method: 'POST' }).then(function (data) {
-      toast(data.message);
+      toast(data.message || 'تم إنشاء نسخة احتياطية.', 'success');
       loadSecurity();
     }).catch(function (error) { toast(error.message, 'error'); })
-      .finally(function () { btn.disabled = false; });
+      .finally(function () { setLoading(btn, false); });
   }
 
   /* ============================ التحديث الدوري ============================ */
@@ -897,12 +1115,12 @@
   function submitModal() {
     if (!state.modalSubmit) return;
     var btn = $('modal-save');
-    btn.disabled = true;
+    setLoading(btn, true, 'جارٍ الحفظ…');
     Promise.resolve(state.modalSubmit()).then(function (result) {
       if (result !== false) closeModal();
     }).catch(function (error) {
       toast(error.message, 'error');
-    }).finally(function () { btn.disabled = false; });
+    }).finally(function () { setLoading(btn, false); });
   }
 
   /* ============================ الأحداث ============================ */
@@ -919,7 +1137,10 @@
       btn.addEventListener('click', function () { go(btn.getAttribute('data-goto')); });
     });
 
-    $('refresh-button').addEventListener('click', function () { go(state.view); });
+    $('refresh-button').addEventListener('click', function () {
+      go(state.view);
+      toast('تم تحديث البيانات.', 'success');
+    });
     $('orders-clear').addEventListener('click', function () {
       state.orderFilters = { status: '', location_id: '', q: '', date: '' };
       $('orders-search').value = '';
@@ -927,6 +1148,7 @@
       $('orders-location').value = '';
       $('orders-date').value = '';
       loadOrders();
+      toast('تم مسح كل الفلاتر.', 'info');
     });
 
     var searchTimer;
@@ -949,6 +1171,7 @@
     $('password-form').addEventListener('submit', changePassword);
     $('print-qr').addEventListener('click', function () {
       global.open(CFG.api + '?r=admin.qr.sheet', '_blank');
+      toast('فتحت صفحة طباعة كل الرموز في تبويب جديد.', 'info');
     });
 
     // أحداث الجداول (تفويض)
@@ -966,9 +1189,17 @@
       if ((el = event.target.closest('[data-prod-del]'))) return deleteProduct(parseInt(el.getAttribute('data-prod-del'), 10));
       if ((el = event.target.closest('[data-loc-edit]'))) return editLocation(parseInt(el.getAttribute('data-loc-edit'), 10));
       if ((el = event.target.closest('[data-loc-del]'))) return deleteLocation(parseInt(el.getAttribute('data-loc-del'), 10));
+      if ((el = event.target.closest('[data-loc-copy]'))) {
+        var text = el.getAttribute('data-loc-copy');
+        copyToClipboard(text).then(function () {
+          toast('نُسخ رابط الموقع. الصقه حيث تشاء.', 'success');
+        });
+        return;
+      }
       if ((el = event.target.closest('[data-loc-print]'))) {
         var code = el.getAttribute('data-loc-print');
-        return global.open(CFG.api + '?r=admin.qr&type=location&value=' + encodeURIComponent(code), '_blank');
+        global.open(CFG.api + '?r=admin.qr&type=location&value=' + encodeURIComponent(code), '_blank');
+        return;
       }
     });
 

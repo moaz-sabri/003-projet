@@ -21,17 +21,19 @@ $pass = 0;
 $fail = 0;
 
 /**
- * @return array{status:int, json:?array, raw:string}
+ * @return array{status:int, json:?array, raw:string, headers:array}
  */
-function req(string $url, ?array $body = null, array $headers = []): array
+function req(string $url, ?array $body = null, array $headers = [], bool $followRedirects = true): array
 {
-    $attempt = static function () use ($url, $body, $headers): array {
+    $attempt = static function () use ($url, $body, $headers, $followRedirects): array {
         $context = stream_context_create(['http' => [
             'method'        => $body === null ? 'GET' : 'POST',
             'header'        => implode("\r\n", array_merge(['Content-Type: application/json'], $headers)),
             'content'       => $body === null ? '' : json_encode($body, JSON_UNESCAPED_UNICODE),
             'timeout'       => 20,
             'ignore_errors' => true,
+            'follow_location' => $followRedirects ? 1 : 0,
+            'max_redirects'   => $followRedirects ? 5 : 1,
         ]]);
 
         $raw    = (string) @file_get_contents($url, false, $context);
@@ -80,27 +82,43 @@ function section(string $title): void
 echo "فحص النشر على: " . $base . "\n" . str_repeat('─', 58) . "\n";
 
 /* ------------------------------- عام ------------------------------- */
-section('١. الملفات العامة');
+section('١. الروابط العامة');
 
-$home = req($base . '/app/index.html');
-check('واجهة الزبون تُقدَّم', $home['status'] === 200, 'status=' . $home['status']);
-check('الواجهة عربية واتجاه RTL', str_contains($home['raw'], 'dir="rtl"'));
-check('الواجهة تربط ملف manifest', str_contains($home['raw'], 'manifest.webmanifest'));
+// خطأ سابق: كانت الواجهة تُقدَّم على /app/index.html فيظهر ذلك المسار في
+// روابط QR المطبوعة وفي شريط العنوان. الآن الجذر "/" هو صفحة واحدة،
+// والروابط الداخلية نظيفة (/cart، /checkout، /order/...).
+$root = req($base . '/');
+check('جذر الموقع (/) يقدّم واجهة الزبون مباشرة', $root['status'] === 200, 'status=' . $root['status']);
+check('الواجهة عربية واتجاه RTL', str_contains($root['raw'], 'dir="rtl"'));
+check('الواجهة تربط ملف manifest', str_contains($root['raw'], 'manifest.webmanifest'));
+check(
+    'ملفات الواجهة بمسارات مطلقة',
+    str_contains($root['raw'], '/app/css/app.css') && str_contains($root['raw'], '/app/js/app.js'),
+    'مسار نسبي في الصفحة = تحميل مكسور عند تغيير الجذر'
+);
+check('الواجهة تستقبل مسار الـ API الصحيح', str_contains($root['raw'], '/api/index.php'), 'APP_CONFIG.api مفقود');
 
-// خطأ سابق: nginx كان يخدم app/index.html على الجذر / داخليًا، فتُحل
-// المسارات النسبية (js/app.js) إلى /js/app.js وتفشل. الحل إعادة توجيه.
-$rootResponse = req($base . '/');
-$rootOk = $rootResponse['status'] === 200 || $rootResponse['status'] === 302;
-check('جذر الموقع (/) يفتح التطبيق', $rootOk, 'status=' . $rootResponse['status']);
-
-if ($rootResponse['status'] === 302) {
-    $location = $rootResponse['headers']['location'] ?? '';
-    check(
-        'إعادة التوجيه تحافظ على النطاق والمنفذ',
-        $location !== '' && !str_contains($location, '//localhost/'),
-        'Location=' . $location
-    );
+// المسارات النظيفة تُقدَّم من الملف نفسه بلا 404
+foreach (['/cart', '/checkout', '/order/abc123'] as $route) {
+    $response = req($base . $route);
+    check('المسار النظيف يعمل: ' . $route, $response['status'] === 200, 'status=' . $response['status']);
 }
+
+// الرابط القديم لم يعد يظهر، ويحافظ على معاملات رموز QR المطبوعة سابقًا
+$legacy = req($base . '/app/index.html?loc=T01', null, [], false);
+check('الرابط القديم يُوجَّه إلى الجذر', $legacy['status'] === 301, 'status=' . $legacy['status']);
+check(
+    'إعادة التوجيه تحافظ على ?loc=',
+    str_contains((string) ($legacy['headers']['location'] ?? ''), 'loc=T01'),
+    'Location=' . ($legacy['headers']['location'] ?? 'مفقود')
+);
+
+$adminNoSlash = req($base . '/admin', null, [], false);
+check('/admin بلا شرطة يوجّه إلى /admin/', $adminNoSlash['status'] === 301, 'status=' . $adminNoSlash['status']);
+
+// ملف مفقود يجب أن يبقى 404 (لا صفحة HTML مكانه)
+$missingAsset = req($base . '/app/uploads/does-not-exist.png');
+check('الملف المفقود يعطي 404 حقيقيًا', $missingAsset['status'] === 404, 'status=' . $missingAsset['status']);
 
 // المسارات داخل الواجهة يجب أن تُخدم من /app/ لا من الجذر
 foreach (['/app/js/app.js', '/app/css/app.css', '/app/js/api.js'] as $asset) {
@@ -112,6 +130,11 @@ check('Service Worker متاح على جذر الموقع', $sw['status'] === 20
 
 $manifest = json_decode(req($base . '/app/manifest.webmanifest')['raw'], true);
 check('مانيفست PWA صالح', is_array($manifest) && ($manifest['dir'] ?? '') === 'rtl');
+check(
+    'التطبيق مثبَّت يبدأ من الجذر لا من app/index.html',
+    ($manifest['start_url'] ?? '') === '../' && !str_contains($manifest['start_url'] ?? '', 'index.html'),
+    'start_url=' . ($manifest['start_url'] ?? 'مفقود')
+);
 
 /* ----------------------------- الكتالوج ----------------------------- */
 section('٢. الكتالوج والطلبات');
@@ -216,6 +239,26 @@ check(
     'صفحة الإدارة بدون تخزين مؤقت',
     str_contains($admin['headers']['cache-control'] ?? '', 'no-store'),
     'cache-control=' . ($admin['headers']['cache-control'] ?? 'مفقود')
+);
+check(
+    'لوحة الإدارة لا تشير إلى مسار ملف داخلي',
+    !str_contains($admin['raw'], '../app/index.html'),
+    'رابط «عرض الموقع» ما زال يشير إلى app/index.html'
+);
+// إعدادات الصفحة داخل JSON: نتحقق أن مسار الـ API مطلق لا نسبي
+preg_match('#<script type="application/json" id="app-config">(.*?)</script>#s', $admin['raw'], $configMatch);
+$adminConfig = json_decode($configMatch[1] ?? '', true);
+check(
+    'لوحة الإدارة تستخدم مسار API مطلقًا',
+    is_array($adminConfig)
+        && str_starts_with((string) ($adminConfig['api'] ?? ''), '/')
+        && str_ends_with((string) ($adminConfig['api'] ?? ''), 'api/index.php'),
+    'api=' . ($adminConfig['api'] ?? 'مفقود')
+);
+check(
+    'رابط «عرض الموقع» يشير إلى جذر الموقع',
+    ($adminConfig['home'] ?? '') === (parse_url($base, PHP_URL_PATH) ?: '/'),
+    'home=' . ($adminConfig['home'] ?? 'مفقود')
 );
 check(
     'لوحة الإدارة ترسل سياسة CSP',

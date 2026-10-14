@@ -1,11 +1,29 @@
 /* ==========================================================================
    app.js — الإقلاع، التوجيه، والأحداث.
+
+   التوجيه: روابط نظيفة حقيقية (/cart، /checkout، /order/{رمز}) عبر History API.
+   إن كان الخادم لا يوجّه المسارات (استضافة مشتركة بلا إعادة توجيه)، يتحوّل
+   التطبيق تلقائيًا إلى وضع الهاش (#/cart) بدل أن يفتح رابط 404 للزبون.
    ========================================================================== */
 (function (global) {
   'use strict';
 
   var $ = function (id) { return document.getElementById(id); };
   var Api = global.App.Api, Store = global.App.Store, UI = global.App.UI;
+
+  var CONFIG = global.APP_CONFIG || {};
+  var BASE   = CONFIG.base || '/';
+  var HOME   = CONFIG.home || BASE;
+
+  var ROUTER_KEY = 'lc_router_mode';
+
+  /* الشاشات المتاحة في الواجهة */
+  var VIEWS = ['menu', 'cart', 'checkout', 'success', 'track'];
+
+  var VIEW_TITLES = {
+    menu: 'القائمة', cart: 'السلة', checkout: 'إتمام الطلب',
+    success: 'تم استلام طلبك', track: 'متابعة الطلب'
+  };
 
   var state = {
     view: 'menu',
@@ -17,49 +35,144 @@
     trackingToken: ''
   };
 
-  /* ============================ التوجيه ============================ */
+  /* ============================== التوجيه ============================== */
 
-  function parseHash() {
-    var hash = (location.hash || '#/').replace(/^#\/?/, '');
-    var parts = hash.split('/');
-    return { name: parts[0] || '', arg: parts[1] || '' };
+  var Router = {
+    mode: 'path',
+    current: function () { return state.view; },
+
+    /** المسار الداخلي بدون جذر الموقع: /cart → cart */
+    route: function () {
+      if (Router.mode === 'hash') {
+        return strip((location.hash || '').replace(/^#\/?/, ''));
+      }
+      var path = location.pathname || '/';
+      if (BASE !== '/' && path.indexOf(BASE) === 0) path = path.slice(BASE.length);
+      return strip(path);
+    },
+
+    /** الانتقال إلى مسار داخلي: '' | 'cart' | 'order/TOKEN' */
+    go: function (path, replace) {
+      path = strip(path || '');
+
+      if (Router.mode === 'hash') {
+        var target = '#/' + path;
+        if (location.hash === target) { render(); return; }
+        if (replace) {
+          history.replaceState(null, '', BASE + target + location.search);
+          render();
+        } else {
+          location.hash = target;
+        }
+        return;
+      }
+
+      var url = BASE + path;
+      var current = location.pathname + location.search;
+      if (url === current) { render(); return; }
+
+      if (replace) history.replaceState(null, '', url + location.search);
+      else history.pushState(null, '', url);
+      render();
+    }
+  };
+
+  function strip(value) {
+    return String(value || '').replace(/^\/+|\/+$/g, '');
   }
 
-  function navigate(path) {
-    if (location.hash === '#/' + path) render();
-    else location.hash = '#/' + path;
+  /**
+   * هل يدعم الخادم المسارات النظيفة؟
+   * 1) إن فُتح التطبيق على مسار غير الجذر فهو يوجّه أصلًا.
+   * 2) وإلا نُجري فحصًا واحدًا خفيفًا يُحفظ في التخزين المحلي (مرة واحدة).
+   */
+  function detectRouting() {
+    var cached = null;
+    try { cached = localStorage.getItem(ROUTER_KEY); } catch (e) { /* تجاهل */ }
+    if (cached === 'path' || cached === 'hash') return Promise.resolve(cached);
+
+    if (Router.route() !== '') return Promise.resolve('path');
+
+    if (!global.fetch) return Promise.resolve('hash');
+
+    return fetch(BASE + '__route_probe__', { cache: 'no-store', headers: { 'X-LC-Probe': '1' } })
+      .then(function (response) {
+        // ترويسة X-Shop-Route موجودة فقط حين يوجّه الخادم المسار إلى index.php
+        return response.headers.get('x-shop-route') ? 'path' : 'hash';
+      })
+      .catch(function () { return 'path'; })
+      .then(function (mode) {
+        try { localStorage.setItem(ROUTER_KEY, mode); } catch (e) { /* تجاهل */ }
+        return mode;
+      });
   }
 
-  var views = ['menu', 'cart', 'checkout', 'success', 'track'];
+  function splitRoute() {
+    var parts = Router.route().split('/').filter(Boolean);
+    return { name: parts[0] || '', arg: parts[1] ? decodeURIComponent(parts[1]) : '' };
+  }
 
   function render() {
-    var route = parseHash();
+    var route = splitRoute();
 
-    if (route.name === 'cart') return show('cart');
-    if (route.name === 'checkout') return show('checkout');
-    if (route.name === 'success') return show('success');
-    if (route.name === 'order' && route.arg) {
-      state.trackingToken = route.arg;
-      return show('track');
+    switch (route.name) {
+      case '':
+      case 'menu':
+        return show('menu');
+
+      case 'cart':
+        return show('cart');
+
+      case 'checkout':
+        return show('checkout');
+
+      case 'success':
+        return show('success');
+
+      case 'order':
+      case 'track':
+        if (route.arg) {
+          state.trackingToken = route.arg;
+          return show('track');
+        }
+        return unknownRoute();
+
+      case 'product':
+        if (route.arg) {
+          show('menu');
+          openProductDetails(parseInt(route.arg, 10));
+          return;
+        }
+        return unknownRoute();
+
+      default:
+        return unknownRoute();
     }
-    if (route.name === 'product' && route.arg) {
-      show('menu');
-      openProductDetails(parseInt(route.arg, 10));
-      return;
-    }
-    show('menu');
+  }
+
+  function unknownRoute() {
+    Router.go('', true);
+    UI.toast('الصفحة التي تبحث عنها غير موجودة. أعدنا بك إلى القائمة.', 'warn');
   }
 
   function show(name) {
+    var changed = state.view !== name;
     state.view = name;
-    views.forEach(function (view) {
+
+    VIEWS.forEach(function (view) {
       var el = $('view-' + view);
       if (el) el.hidden = (view !== name);
     });
     $('view-welcome').hidden = true;
     $('header-nav').hidden = (name !== 'menu');
 
-    window.scrollTo({ top: 0, behavior: 'instant' in document.documentElement.style ? 'instant' : 'auto' });
+    if (changed) {
+      window.scrollTo(0, 0);
+      var content = $('content');
+      if (content && content.focus) content.focus({ preventScroll: true });
+      applyViewTitle();
+      UI.renderCart();
+    }
 
     if (name === 'menu') renderMenu();
     if (name === 'cart') UI.renderCart();
@@ -68,7 +181,14 @@
     if (name === 'track') loadTracking();
   }
 
-  /* ============================ التحميل ============================ */
+  /** عنوان الصفحة يوضّح أين نحن — مهم عند فتح الرابط في تبويب جديد. */
+  function applyViewTitle() {
+    var app = (Store.settings && Store.settings.app_name) || 'القائمة';
+    var title = VIEW_TITLES[state.view] || '';
+    document.title = state.view === 'menu' ? app : title + ' · ' + app;
+  }
+
+  /* ============================== التحميل ============================== */
 
   function loadCatalog() {
     return Api.snapshot(state.search)
@@ -86,8 +206,10 @@
           var age = Store.cacheAge();
           var notice = $('menu-notice');
           if (notice && age !== null) {
-            notice.textContent = 'تعرض الآن نسخة محفوظة من القائمة' +
-              (age > 3600000 ? ' عمرها ' + Math.round(age / 3600000) + ' ساعة.' : ' قبل دقائق.');
+            notice.innerHTML = '<span aria-hidden="true">⚠</span><span>' +
+              'تعرض الآن نسخة محفوظة من القائمة' +
+              (age > 3600000 ? ' عمرها ' + Math.round(age / 3600000) + ' ساعة.' : ' قبل دقائق.') +
+              '</span>';
             UI.setHidden(notice, false);
           }
           // الخدمة المحدّثة حدّثت الكاش في الخلفية — نقرأ النسخة الأحدث بعد لحظات
@@ -101,8 +223,10 @@
           }
           return;
         }
+
+        UI.hideSkeleton();
         UI.setOffline(true);
-        UI.toast(error.message);
+        UI.toast(error.message, 'error');
       });
   }
 
@@ -110,6 +234,8 @@
     var settings = Store.settings || {};
     UI.renderBrand(settings, Store.config || {});
     UI.renderSearch(Store.settings.show_search !== false);
+    UI.hideSkeleton();
+    applyViewTitle();
     renderMenu();
   }
 
@@ -117,7 +243,7 @@
     if (!Store.snapshot) return;
     var features = (Store.config && Store.config.features) || {};
 
-    UI.renderTabs(Store.snapshot.categories || [], state.categoryId, features);
+    UI.renderTabs(Store.snapshot.categories || [], state.categoryId);
     UI.renderLocationChip(Store.location, Store.config || {});
 
     var products = (Store.snapshot.products || []).filter(function (product) {
@@ -129,8 +255,9 @@
     UI.renderCart();
   }
 
-  /* ============================ الموقع ============================ */
+  /* =============================== الموقع =============================== */
 
+  /** ?loc=CODE قادم من رمز QR: يُطبَّق ثم يُنظَّف الرابط. */
   function applyLocationFromUrl() {
     var params = new URLSearchParams(location.search);
     var code = params.get('loc');
@@ -138,19 +265,48 @@
 
     var locations = (Store.snapshot && Store.snapshot.locations) || [];
     var match = locations.filter(function (l) { return l.code === code; })[0];
+
     if (match && match.active) {
       Store.setLocation(match);
       state.location = match;
+      cleanQuery(['loc']);
       return true;
     }
+
+    UI.toast('رمز الموقع غير معروف. اختر موقعك من القائمة.', 'warn');
+    cleanQuery(['loc']);
     return false;
   }
 
-  /* ============================ المنتج ============================ */
+  /** إزالة معاملات انتهت صلاحيتها من الرابط دون إعادة تحميل الصفحة. */
+  function cleanQuery(keys) {
+    if (!keys.length) return;
+    var params = new URLSearchParams(location.search);
+    var changed = false;
+    keys.forEach(function (key) {
+      if (params.has(key)) { params.delete(key); changed = true; }
+    });
+    if (!changed) return;
+
+    var query = params.toString();
+    var url = location.pathname + (query ? '?' + query : '') + location.hash;
+    history.replaceState(null, '', url);
+  }
+
+  /* ============================== المنتج ============================== */
 
   function openProductDetails(id) {
     var local = findProduct(id);
-    if (!local) return;
+    if (!local) {
+      // قد يكون التطبيق ما زال يحمّل الكتالوج: ننتظر ثم نفتح
+      if (Store.snapshot === null) {
+        loadCatalog().then(function () { openProductDetails(id); });
+        return;
+      }
+      UI.toast('هذا المنتج لم يعد متاحًا.', 'warn');
+      Router.go('', true);
+      return;
+    }
 
     UI.renderProductSheet(local, Store.config || {});
     var footer = $('sheet-footer');
@@ -159,11 +315,13 @@
     $('product-sheet').hidden = false;
     $('sheet-backdrop').hidden = false;
     document.body.style.overflow = 'hidden';
+    var close = $('sheet-close');
+    if (close) close.focus({ preventScroll: true });
 
     // إن كان للمنتج تفاصيل أعرضها من الخادم للتأكد
     if (local.has_details) {
       Api.product(id).then(function (detail) {
-        UI.renderProductSheet(detail, Store.config || {});
+        if (!$('product-sheet').hidden) UI.renderProductSheet(detail, Store.config || {});
       }).catch(function () { /* نعرض النسخة المحلية */ });
     }
   }
@@ -172,6 +330,7 @@
     $('product-sheet').hidden = true;
     $('sheet-backdrop').hidden = true;
     document.body.style.overflow = '';
+    if (Router.route().indexOf('product/') === 0) Router.go('', true);
   }
 
   function findProduct(id) {
@@ -182,26 +341,34 @@
     return null;
   }
 
-  /* ============================ السلة ============================ */
+  /* =============================== السلة =============================== */
 
   function addToCart(id, quantity) {
     var product = findProduct(id);
     if (!product) return;
+
     if (product.available === false) {
-      UI.toast('هذا المنتج لم يعد متاحًا.');
+      UI.toast('هذا المنتج لم يعد متاحًا.', 'warn');
       return;
     }
+
+    var already = Store.quantityOf(id);
     Store.addItem(product, quantity || 1);
     UI.renderCart();
     renderMenu();
-    UI.toast('أُضيف «' + product.name + '» إلى السلة');
+
+    UI.toast(
+      '«' + product.name + '» في السلة · العدد ' + Store.quantityOf(id),
+      'success'
+    );
   }
 
-  /* ============================ الدفع ============================ */
+  /* ============================== الدفع ============================== */
 
   function prepareCheckout() {
     if (!Store.cart.length) {
-      navigate('cart');
+      UI.toast('السلة فارغة. أضف صنفًا واحدًا على الأقل.', 'info');
+      Router.go('cart');
       return;
     }
 
@@ -216,11 +383,7 @@
 
     $('checkout-total').textContent = UI.formatPrice(Store.total());
     UI.clearError('checkout-error');
-
-    var nameInput = $('customer-name');
-    if (nameInput && !nameInput.value && Store.getLastOrder()) {
-      // لا نملأ الاسم تلقائيًا إلا إذا اختاره الزبون سابقًا في هذه الجلسة
-    }
+    UI.setOffline(!navigator.onLine);
   }
 
   function currentOrderType() {
@@ -239,15 +402,16 @@
       !!type.requires_location
     );
 
-    if (type.requires_location && Store.location) {
-      $('field-location').hidden = true;
-    }
-
     var nameField = $('field-name');
     var label = (Store.config && Store.config.customer_name_label) || 'اسمك';
     $('label-customer-name').textContent = label;
     $('customer-name').placeholder = (Store.config && Store.config.customer_name_placeholder) || '';
     if (nameField) nameField.hidden = false;
+
+    // إخفاء حقل الموقع إن كان محددًا من رمز QR ولا يُطلب اختياره
+    if (type.requires_location && Store.location) {
+      $('field-location').hidden = true;
+    }
   }
 
   function collectPayload() {
@@ -294,35 +458,37 @@
     if (!payload.customer_name) {
       $('field-name').classList.add('invalid');
       UI.showError('checkout-error', 'اكتب اسمك أولًا من فضلك.');
-      $('customer-name').focus();
       return;
     }
 
     state.submitting = true;
     var btn = $('submit-order');
-    btn.disabled = true;
-    btn.textContent = 'جارٍ الإرسال…';
+    UI.setLoading(btn, true, 'جارٍ إرسال الطلب…');
 
     Api.createOrder(payload, payload.idempotency_key)
       .then(function (order) {
         // نؤكد النجاح فقط بعد الحفظ الفعلي على الخادم
+        var number = order.number;
         Store.clearIdempotencyKey();
         Store.clearCart();
         Store.setLastOrder(order);
         UI.renderCart();
         UI.renderSuccess(order);
-        navigate('success');
+        Router.go('success');
+        UI.toast('تم حفظ الطلب رقم #' + number + ' بنجاح.', 'success');
       })
       .catch(function (error) {
         UI.showError('checkout-error', error.message, error.fields);
+        UI.toast('تعذّر إرسال الطلب. لم يُخصم أي شيء.', 'error');
         if (error.code === 'network_error' || error.code === 'timeout') {
           UI.setOffline(true);
         }
       })
       .finally(function () {
         state.submitting = false;
-        btn.disabled = false;
-        btn.textContent = 'تأكيد الطلب';
+        UI.setLoading(btn, false);
+        // قد يكون انقطاع الشبكة سبب الخطأ: نُبقي حالة الانصال كما هي
+        if (!navigator.onLine) UI.setOffline(true);
       });
   }
 
@@ -330,48 +496,73 @@
 
   function loadTracking() {
     var token = state.trackingToken;
-    if (!token) { navigate('menu'); return; }
+    if (!token) { Router.go(''); return; }
 
     if (!navigator.onLine) {
       var last = Store.getLastOrder();
       if (last && last.tracking_token === token) {
         UI.renderTracking(last);
+        UI.toast('لا يوجد اتصال — هذه آخر حالة محفوظة على جهازك.', 'warn');
       } else {
         UI.showError('track-error', 'لا يوجد اتصال لعرض حالة الطلب.');
       }
       return;
     }
 
+    var btn = $('track-refresh');
+    UI.setLoading(btn, true, 'جارٍ التحديث…');
+
     Api.orderStatus(token)
-      .then(function (order) { UI.renderTracking(order); })
-      .catch(function (error) { UI.showError('track-error', error.message); });
+      .then(function (order) {
+        UI.renderTracking(order);
+        UI.clearError('track-error');
+        UI.toast('الحالة الآن: ' + order.status_label, 'success');
+      })
+      .catch(function (error) {
+        UI.showError('track-error', error.message);
+        UI.toast(error.message, 'error');
+      })
+      .finally(function () { UI.setLoading(btn, false); });
   }
 
   function restoreLastSuccess() {
     var last = Store.getLastOrder();
-    if (last) UI.renderSuccess(last);
+    if (last) {
+      UI.renderSuccess(last);
+    } else {
+      Router.go('', true);
+    }
   }
 
-  /* ============================ الأحداث ============================ */
+  /* =============================== الأحداث =============================== */
 
   function bindEvents() {
     // التنقل
-    $('cart-button').addEventListener('click', function () { navigate('cart'); });
-    $('to-checkout').addEventListener('click', function () { navigate('checkout'); });
-    $('checkout-back').addEventListener('click', function () { navigate('cart'); });
+    $('cart-button').addEventListener('click', function () { Router.go('cart'); });
+    $('cart-fab').addEventListener('click', function () { Router.go('cart'); });
+    $('to-checkout').addEventListener('click', function () { Router.go('checkout'); });
+    $('checkout-back').addEventListener('click', function () { Router.go('cart'); });
+    $('cart-empty-action').addEventListener('click', function () { Router.go(''); });
+    $('brand-link').addEventListener('click', function (event) {
+      event.preventDefault();
+      Router.go('');
+    });
     $('success-new-order').addEventListener('click', function () {
       Store.clearLastOrder();
-      navigate('menu');
+      UI.toast('يمكنك طلب جديد في أي وقت.', 'info');
+      Router.go('');
     });
     $('track-refresh').addEventListener('click', loadTracking);
+
     $('loc-clear').addEventListener('click', function () {
       Store.clearLocation();
-      UI.toast('تم مسح الموقع. اختر موقعًا جديدًا عند الطلب.');
+      UI.toast('تم مسح الموقع. اختر موقعًا جديدًا عند الطلب.', 'info');
       renderMenu();
     });
+
     $('welcome-action').addEventListener('click', function () {
       try { localStorage.setItem('lc_welcome_seen', '1'); } catch (e) { /* تجاهل */ }
-      navigate('menu');
+      Router.go('');
     });
 
     // التصنيفات
@@ -384,22 +575,36 @@
 
     // البحث
     var searchTimer;
-    $('search-input').addEventListener('input', function (event) {
+    var searchInput = $('search-input');
+
+    function runSearch(value) {
+      state.search = value;
+      UI.setHidden($('search-clear'), value === '');
+      if (value === '') {
+        if (Store.snapshot) renderMenu();
+        return;
+      }
+      Api.snapshot(value).then(function (data) {
+        Store.setSnapshot(data);
+        renderMenu();
+      }).catch(function () {
+        UI.toast('تعذّر تنفيذ البحث. حاول مجددًا.', 'error');
+      });
+    }
+
+    searchInput.addEventListener('input', function (event) {
       clearTimeout(searchTimer);
-      var value = event.target.value;
+      var value = event.target.value.trim();
       searchTimer = setTimeout(function () {
-        if (value.length >= 2 && !Store.snapshot) return;
         if (value === state.search) return;
-        state.search = value;
-        if (value === '') {
-          if (Store.snapshot) renderMenu();
-          return;
-        }
-        Api.snapshot(value).then(function (data) {
-          Store.setSnapshot(data);
-          renderMenu();
-        }).catch(function () { /* نُبقي النتائج الحالية */ });
-      }, 350);
+        runSearch(value);
+      }, 320);
+    });
+
+    $('search-clear').addEventListener('click', function () {
+      searchInput.value = '';
+      runSearch('');
+      searchInput.focus();
     });
 
     // بطاقات المنتجات
@@ -414,6 +619,15 @@
       if (card) openProductDetails(parseInt(card.getAttribute('data-detail'), 10));
     });
 
+    // بطاقات المنتجات: فتحها بالكيبورد أيضًا
+    $('product-grid').addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      var card = event.target.closest('[data-detail]');
+      if (!card) return;
+      event.preventDefault();
+      openProductDetails(parseInt(card.getAttribute('data-detail'), 10));
+    });
+
     // ورقة المنتج
     $('sheet-close').addEventListener('click', closeSheet);
     $('sheet-backdrop').addEventListener('click', closeSheet);
@@ -422,6 +636,7 @@
       if (step) {
         var value = parseInt($('sheet-qty').textContent, 10) + parseInt(step.getAttribute('data-step'), 10);
         $('sheet-qty').textContent = Math.max(1, Math.min(99, value));
+        return;
       }
       if (event.target.id === 'sheet-add') {
         var id = parseInt($('sheet-footer').getAttribute('data-product-id') || '0', 10);
@@ -436,21 +651,43 @@
       var step = event.target.closest('[data-cart-step]');
       if (step) {
         var id = parseInt(step.getAttribute('data-id'), 10);
-        Store.setQuantity(id, Store.quantityOf(id) + parseInt(step.getAttribute('data-cart-step'), 10));
+        var next = Store.quantityOf(id) + parseInt(step.getAttribute('data-cart-step'), 10);
+        Store.setQuantity(id, next);
         UI.renderCart();
+        renderMenu();
         return;
       }
+
       var remove = event.target.closest('[data-cart-remove]');
       if (remove) {
-        Store.removeItem(parseInt(remove.getAttribute('data-cart-remove'), 10));
+        var rid = parseInt(remove.getAttribute('data-cart-remove'), 10);
+        var item = Store.findItem(rid);
+        var name = item ? item.name : 'الصنف';
+        Store.removeItem(rid);
         UI.renderCart();
+        renderMenu();
+        UI.toast('أُزيل «' + name + '» من السلة.', 'info');
       }
     });
 
     $('clear-cart').addEventListener('click', function () {
+      if (!Store.cart.length) return;
+      var snapshot = Store.cart.slice();
       Store.clearCart();
       UI.renderCart();
-      UI.toast('تم إفراغ السلة.');
+      renderMenu();
+      UI.toast('تم إفراغ السلة.', 'info', {
+        action: {
+          label: 'تراجع',
+          onClick: function () {
+            Store.cart = snapshot;
+            Store.saveCart();
+            UI.renderCart();
+            renderMenu();
+            UI.toast('أُعيدت الأصناف إلى السلة.', 'success');
+          }
+        }
+      });
     });
 
     // نوع الطلب والموقع والحقول الديناميكية
@@ -475,6 +712,7 @@
       if (match) {
         Store.setLocation(match);
         UI.renderLocationChip(match, Store.config || {});
+        UI.toast('تم تحديد الموقع: ' + match.name, 'success');
       }
     });
 
@@ -484,45 +722,60 @@
     });
 
     // الاتصال: نعتمد على نتيجة الطلبات الحقيقية لا على navigator.onLine وحده
-    // (بعض الأجهزة تشير إلى "متصل" بينما الخادم غير متاح، وبعضها العكس)
     window.addEventListener('online', function () {
+      UI.setOffline(false);
       loadCatalog().then(function () {
         UI.setOffline(false);
-        UI.toast('عاد الاتصال — تم تحديث القائمة.');
+        UI.toast('عاد الاتصال — تم تحديث القائمة.', 'success');
       });
     });
-    window.addEventListener('offline', function () { UI.setOffline(true); });
+    window.addEventListener('offline', function () {
+      UI.setOffline(true);
+      UI.toast('انقطع الاتصال. الطلب متوقف حتى يعود.', 'warn');
+    });
 
-    window.addEventListener('hashchange', render);
+    // رجوع/تقدم في سجل المتصفح
+    global.addEventListener('popstate', function () {
+      closeSheet();
+      render();
+    });
+    global.addEventListener('hashchange', function () {
+      if (Router.mode === 'hash') { closeSheet(); render(); }
+    });
+
     document.addEventListener('keydown', function (event) {
       if (event.key === 'Escape' && !$('product-sheet').hidden) closeSheet();
     });
   }
 
-  /* ============================ الإقلاع ============================ */
+  /* ============================== الإقلاع ============================== */
 
   function boot() {
     Store.loadCart();
     Store.loadLocation();
     state.location = Store.location;
 
+    $('brand-link').setAttribute('href', HOME);
     bindEvents();
 
-    // احترام الرابط المباشر عند الفتح (مثل رابط QR الذي يفتح صفحة متابعة)
+    // احترام الرابط المباشر عند الفتح (رابط QR أو صفحة مشاركة)
     render();
 
+    // هيكل تحميل مؤقت حتى وصول الكتالوج
+    if (state.view === 'menu' && !Store.snapshot) UI.renderSkeleton(6);
+
     loadCatalog().then(function () {
-      var applied = applyLocationFromUrl();
-      if (applied) {
+      if (applyLocationFromUrl()) {
         state.location = Store.location;
-        UI.toast('تم تحديد ' + (Store.config.location_singular || 'الموقع') + ': ' + Store.location.name);
+        UI.toast('تم تحديد ' + (Store.config.location_singular || 'الموقع') + ': ' +
+          Store.location.name, 'success');
       }
 
-      // رمز متابعة طلب قادم من QR
+      // رمز متابعة طلب قادم من QR قديم (?t=) أو من رابط طلب جديد
       var token = new URLSearchParams(location.search).get('t');
       if (token) {
-        state.trackingToken = token;
-        navigate('order/' + token);
+        cleanQuery(['t']);
+        Router.go('order/' + encodeURIComponent(token), true);
         return;
       }
 
@@ -530,23 +783,35 @@
       var welcome = $('view-welcome');
       var dismissed = false;
       try { dismissed = localStorage.getItem('lc_welcome_seen') === '1'; } catch (e) { dismissed = false; }
-      var isRootRoute = !location.hash || location.hash === '#/' || location.hash === '#/menu';
+      var isRootRoute = !Router.route();
 
       if (isRootRoute && !dismissed && Store.settings.show_welcome && Store.settings.welcome_message) {
         $('welcome-title').textContent = 'أهلًا بك في ' + (Store.settings.app_name || 'القائمة');
         $('welcome-text').textContent = Store.settings.welcome_message;
         welcome.hidden = false;
-        ['menu', 'cart', 'checkout', 'success', 'track'].forEach(function (v) {
-          $('view-' + v).hidden = true;
-        });
+        VIEWS.forEach(function (v) { $('view-' + v).hidden = true; });
+        state.view = 'welcome';
       }
     });
 
-    if ('serviceWorker' in navigator) {
+    if ('serviceWorker' in navigator && CONFIG.sw) {
       // التسجيل من جذر الموقع ليشمل نطاق /api/ أيضًا (كي يعمل التخزين دون اتصال)
-      navigator.serviceWorker.register('../sw.js', { scope: '../' }).catch(function () { /* تجاهل */ });
+      navigator.serviceWorker.register(CONFIG.sw, { scope: BASE }).catch(function () { /* تجاهل */ });
     }
+
+    // كشف دعم الروابط النظيفة بعد أول رسم (لا يعطّل الإقلاع)
+    detectRouting().then(function (mode) {
+      if (mode === 'hash' && Router.mode !== 'hash') {
+        Router.mode = 'hash';
+        // إن كنا على مسار نظيف (مثل فتح رابط مخزّن دون اتصال) ننقله إلى الهاش
+        var path = location.pathname;
+        if (BASE !== '/' && path.indexOf(BASE) === 0) path = path.slice(BASE.length);
+        if (strip(path)) history.replaceState(null, '', BASE + '#/' + strip(path));
+      }
+      render();
+    });
   }
 
+  global.App.Router = Router;
   document.addEventListener('DOMContentLoaded', boot);
 })(window);

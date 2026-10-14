@@ -3,25 +3,28 @@
 declare(strict_types=1);
 
 /**
- * راوتر خادم PHP المدمج (للتطوير المحلي فقط).
+ * راوتر خادم PHP المدمج (للتطوير المحلي والاختبار فقط).
  *
  *   php -S localhost:8000 bin/serve.php
  *
  * خادم PHP المدمج لا يقرأ ملفات .htaccess، لذا نطبّق قواعد الحماية
  * البرمجية هنا: منع الوصول إلى src/ و storage/ و bin/ و tests/ و docker/،
- * ومنع تنفيذ أي سكربت داخل app/uploads، وتوجيه الجذر إلى واجهة الزبون.
- *
- * على الاستضافة الحقيقية (Apache/Nginx) الحماية تأتي من .htaccess و nginx.conf.
+ * ومنع تنفيذ أي سكربت داخل app/uploads، وتوجيه كل المسارات غير الملفية
+ * إلى index.php — تمامًا كما يفعل Apache عبر .htaccess و nginx عبر
+ * try_files. بهذه الطريقة تُختبر الروابط النظيفة (/cart، /checkout)
+ * محليًا بنفس سلوك الإنتاج.
  */
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $path = '/' . ltrim(rawurldecode($path), '/');
+$query = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_QUERY) ?? '';
 
 /* --------------------------- مسارات ممنوعة --------------------------- */
-$blockedPrefixes = ['/src/', '/storage/', '/bin/', '/tests/', '/docker/', '/setup/', '/vendor/'];
+$blockedPrefixes = ['/src/', '/storage/', '/bin/', '/tests/', '/tools/', '/docs/', '/docker/', '/setup/', '/vendor/'];
 $blockedExact    = [
-    '/src', '/storage', '/bin', '/tests', '/docker', '/setup', '/vendor',
+    '/src', '/storage', '/bin', '/tests', '/tools', '/docs', '/docker', '/setup', '/vendor',
     '/.htaccess', '/.env', '/.git', '/composer.json', '/composer.lock', '/Dockerfile',
+    '/README.md', '/CHANGELOG.md', '/AUDIT_REPORT.md',
 ];
 
 if (in_array(rtrim($path, '/'), $blockedExact, true)) {
@@ -52,6 +55,27 @@ if (preg_match('#^/app/uploads/#', $path) && preg_match('/\.(php\d?|phtml|phar|c
     return true;
 }
 
+/* --------------------------- روابط موحّدة (301) --------------------------- */
+// قبلخدمة الملفات، وإلا قُدِّم /app/index.html كما هو بدل تحويله إلى الجذر.
+$redirect = static function (string $target): void {
+    header('Location: ' . $target, true, 301);
+};
+
+if ($path === '/app/index.html' || $path === '/app/' || $path === '/index.php') {
+    $redirect('/' . ($query !== '' ? '?' . $query : ''));
+    return true;
+}
+
+if ($path === '/admin') {
+    $redirect('/admin/');
+    return true;
+}
+
+if ($path === '/setup') {
+    $redirect('/setup/');
+    return true;
+}
+
 /* --------------------------- ملفات PHP مسموحة --------------------------- */
 $allowedPhp = ['/api/index.php', '/admin/index.php', '/setup/index.php', '/bin/console'];
 
@@ -72,6 +96,7 @@ if (preg_match('/\.php$/i', $path)) {
     }
 
     $_SERVER['SCRIPT_FILENAME'] = $script;
+    $_SERVER['SCRIPT_NAME']     = $path;
     require $script;
     return true;
 }
@@ -106,18 +131,16 @@ if ($file !== false && str_starts_with($file, $root) && is_file($file)) {
     return true;
 }
 
-/* --------------------------- الجذر والمجلدات --------------------------- */
-if ($path === '/' || $path === '/app/' || $path === '/admin') {
-    header('Location: /app/index.html', true, 302);
-    return true;
-}
-
+/* ---------------------- لوحة الإدارة (ملف PHP) ---------------------- */
 if ($path === '/admin/') {
     $_SERVER['SCRIPT_FILENAME'] = realpath(__DIR__ . '/../admin/index.php');
+    $_SERVER['SCRIPT_NAME']     = '/admin/index.php';
     require $_SERVER['SCRIPT_FILENAME'];
     return true;
 }
 
-http_response_code(404);
-echo '404 Not Found';
+/* --------- تطبيق صفحة واحدة: / و /cart و /checkout و /order/… --------- */
+$_SERVER['SCRIPT_FILENAME'] = realpath(__DIR__ . '/../index.php');
+$_SERVER['SCRIPT_NAME']     = '/index.php';
+require $_SERVER['SCRIPT_FILENAME'];
 return true;

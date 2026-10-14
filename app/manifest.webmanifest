@@ -4,12 +4,12 @@
   "description": "قائمة رقمية وطلبات مباشرة",
   "lang": "ar",
   "dir": "rtl",
-  "start_url": "./index.html",
-  "scope": "./",
+  "start_url": "../",
+  "scope": "../",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#f7f6f3",
-  "theme_color": "#111827",
+  "background_color": "#faf9f7",
+  "theme_color": "#c2410c",
   "categories": ["food", "shopping", "business"],
   "icons": [
     { "src": "assets/icons/icon-72.png",  "sizes": "72x72",   "type": "image/png", "purpose": "any" },
@@ -26,7 +26,7 @@
   "shortcuts": [
     {
       "name": "تصفح القائمة",
-      "url": "./index.html#/menu",
+      "url": "../menu",
       "icons": [{ "src": "assets/icons/icon-96.png", "sizes": "96x96" }]
     }
   ]

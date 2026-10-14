@@ -1,11 +1,15 @@
 /* ==========================================================================
    api.js — طبقة الاتصال بالـ API مع كشف حالة الاتصال بصدق.
    لا تُعرض أي رسالة نجاح قبل وصول رد الخادم فعليًا.
+
+   مسار الـ API يأتي من إعدادات الصفحة التي يحقنها index.php في الجذر
+   (window.APP_CONFIG)، فيبقى صحيحًا مهما كان موضع تثبيت القالب.
    ========================================================================== */
 (function (global) {
   'use strict';
 
-  var API_BASE = '../api/index.php';
+  var CONFIG  = global.APP_CONFIG || {};
+  var API_BASE = CONFIG.api || '../api/index.php';
 
   var Api = {
     online: navigator.onLine !== false,

@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#131417" media="(prefers-color-scheme: dark)">
   <meta name="description" content="قائمة رقمية وطلبات مباشرة">
   <title>القائمة</title>
 
@@ -14,25 +16,29 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="القائمة">
 
-  <link rel="stylesheet" href="css/app.css?v=1.1.0">
+  <link rel="stylesheet" href="css/app.css?v=1.2.0">
 </head>
 <body>
 
+<a class="skip-link" href="#content">تخطَّ إلى المحتوى</a>
+
 <!-- شريط الحالة أسفل الشاشة -->
-<div class="banner" id="offline-banner" hidden>
-  <span class="banner-icon" aria-hidden="true">⚠</span>
+<div class="banner" id="offline-banner" hidden role="status">
+  <span class="banner-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="15" height="15"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 8v5m0 3.5h.01M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+  </span>
   <span class="banner-text">لا يوجد اتصال — تتصفح نسخة محفوظة من القائمة. الطلب متوقف مؤقتًا.</span>
 </div>
 
 <header class="app-header" id="app-header">
   <div class="header-inner">
-    <div class="brand">
+    <a class="brand" id="brand-link" href="./">
       <img class="brand-logo" id="brand-logo" alt="" hidden>
-      <div class="brand-text">
-        <h1 class="brand-name" id="brand-name">القائمة</h1>
-        <p class="brand-tagline" id="brand-tagline" hidden></p>
-      </div>
-    </div>
+      <span class="brand-text">
+        <span class="brand-name" id="brand-name">القائمة</span>
+        <span class="brand-tagline" id="brand-tagline" hidden></span>
+      </span>
+    </a>
 
     <div class="header-actions">
       <span class="loc-chip" id="loc-chip" hidden>
@@ -59,13 +65,15 @@
         <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
         <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
-      <input type="search" id="search-input" placeholder="ابحث في القائمة…" autocomplete="off" enterkeyhint="search">
+      <input type="search" id="search-input" placeholder="ابحث في القائمة…" autocomplete="off" enterkeyhint="search" aria-label="ابحث في القائمة">
+      <button class="search-clear" id="search-clear" type="button" aria-label="مسح البحث" hidden>×</button>
     </div>
-    <nav class="tabs" id="category-tabs" aria-label="التصنيفات"></nav>
+    <nav class="tabs" id="category-tabs" aria-label="التصنيفات" role="tablist"></nav>
   </div>
 </header>
 
-<main class="content" id="content">
+<main class="content" id="content" tabindex="-1">
+
   <!-- شاشة الترحيب -->
   <section class="welcome" id="view-welcome" hidden>
     <div class="welcome-card">
@@ -79,29 +87,43 @@
   <!-- شاشة المنتجات -->
   <section class="view" id="view-menu">
     <div class="notice" id="menu-notice" hidden></div>
+    <div class="skeleton-grid" id="menu-skeleton" aria-hidden="true"></div>
     <div class="product-grid" id="product-grid"></div>
-    <p class="empty-state" id="menu-empty" hidden></p>
+    <div class="empty-state" id="menu-empty" hidden>
+      <div class="empty-emoji" aria-hidden="true">🍽️</div>
+      <p class="empty-title" id="menu-empty-title">لا توجد منتجات</p>
+      <p class="empty-text" id="menu-empty-text"></p>
+    </div>
   </section>
 
   <!-- شاشة السلة -->
   <section class="view" id="view-cart" hidden>
     <div class="view-head">
       <h2 class="view-title">السلة</h2>
-      <button class="btn btn-ghost" id="clear-cart" type="button">إفراغ السلة</button>
+      <button class="btn btn-ghost btn-sm" id="clear-cart" type="button">إفراغ السلة</button>
     </div>
     <div class="cart-list" id="cart-list"></div>
-    <p class="empty-state" id="cart-empty" hidden>سلتك فارغة.</p>
+    <div class="empty-state" id="cart-empty" hidden>
+      <div class="empty-emoji" aria-hidden="true">🧺</div>
+      <p class="empty-title">سلتك فارغة</p>
+      <p class="empty-text">أضف ما يعجبك من القائمة وسيمكنك إتمام الطلب فورًا.</p>
+      <button class="btn btn-primary" id="cart-empty-action" type="button">تصفح القائمة</button>
+    </div>
     <div class="cart-summary" id="cart-summary" hidden>
       <div class="summary-row"><span>المجموع الفرعي</span><span id="cart-subtotal">0</span></div>
-      <div class="summary-note">يتم تأكيد الأسعار على الخادم عند الإرسال.</div>
-      <button class="btn btn-primary btn-lg btn-block" id="to-checkout" type="button">متابعة إتمام الطلب</button>
+      <p class="summary-note">يتم تأكيد الأسعار على الخادم عند الإرسال.</p>
+      <button class="btn btn-primary btn-lg btn-block" id="to-checkout" type="button">
+        متابعة إتمام الطلب
+      </button>
     </div>
   </section>
 
   <!-- شاشة إتمام الطلب -->
   <section class="view" id="view-checkout" hidden>
     <div class="view-head">
-      <button class="icon-btn" id="checkout-back" type="button" aria-label="رجوع">→</button>
+      <button class="icon-btn" id="checkout-back" type="button" aria-label="رجوع إلى السلة">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+      </button>
       <h2 class="view-title">إتمام الطلب</h2>
     </div>
 
@@ -144,13 +166,15 @@
   <!-- شاشة تأكيد الطلب -->
   <section class="view" id="view-success" hidden>
     <div class="success-card">
-      <div class="success-badge" aria-hidden="true">✓</div>
+      <div class="success-badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="30" height="30"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+      </div>
       <h2 class="success-title">تم استلام طلبك</h2>
       <p class="success-number">رقم الطلب: <strong id="success-number">—</strong></p>
       <div class="success-details" id="success-details"></div>
       <div class="success-actions">
-        <button class="btn btn-primary btn-block" id="success-new-order" type="button">طلب جديد</button>
-        <a class="btn btn-ghost btn-block" id="success-track" href="#" hidden>متابعة الطلب</a>
+        <a class="btn btn-primary btn-block" id="success-track" href="#" hidden>متابعة الطلب</a>
+        <button class="btn btn-ghost btn-block" id="success-new-order" type="button">طلب جديد</button>
       </div>
     </div>
   </section>
@@ -180,24 +204,40 @@
   <div class="sheet-body" id="sheet-body"></div>
   <div class="sheet-footer" id="sheet-footer" hidden>
     <div class="stepper">
-      <button type="button" class="step-btn" data-step="-1" aria-label="إنقاص">−</button>
+      <button type="button" class="step-btn" data-step="-1" aria-label="إنقاص الكمية">−</button>
       <span class="step-value" id="sheet-qty">1</span>
-      <button type="button" class="step-btn" data-step="1" aria-label="زيادة">+</button>
+      <button type="button" class="step-btn" data-step="1" aria-label="زيادة الكمية">+</button>
     </div>
     <button class="btn btn-primary" id="sheet-add" type="button">أضف إلى السلة</button>
   </div>
 </aside>
 
-<!-- زر الإضافة السريع للسلة العائم -->
-<div class="toast" id="toast" hidden></div>
+<!-- زر السلة العائم (يظهر عند وجود أصناف خارج شاشة السلة) -->
+<button class="cart-fab" id="cart-fab" type="button" hidden>
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+    <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+          d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6"/>
+    <circle cx="10" cy="20" r="1.4" fill="currentColor"/>
+    <circle cx="18" cy="20" r="1.4" fill="currentColor"/>
+  </svg>
+  <span>السلة</span>
+  <span class="fab-count" id="fab-count">0</span>
+</button>
+
+<!-- رسائل الأحداث: نجاح / خطأ / تنبيه -->
+<div class="toast-wrap" id="toast-wrap" role="status" aria-live="polite"></div>
 
 <footer class="app-footer" id="app-footer" hidden>
   <span id="footer-contact"></span>
 </footer>
 
-<script src="js/api.js"></script>
-<script src="js/store.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/app.js"></script>
+<noscript>
+  <div class="noscript">هذه القائمة تحتاج تفعيل JavaScript في المتصفح لعرض المنتجات وإرسال الطلب.</div>
+</noscript>
+
+<script src="js/api.js?v=1.2.0"></script>
+<script src="js/store.js?v=1.2.0"></script>
+<script src="js/ui.js?v=1.2.0"></script>
+<script src="js/app.js?v=1.2.0"></script>
 </body>
 </html>

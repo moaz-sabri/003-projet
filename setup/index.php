@@ -16,6 +16,8 @@ define('BASE_PATH', dirname(__DIR__));
 date_default_timezone_set('Asia/Beirut');
 mb_internal_encoding('UTF-8');
 
+use App\Core\Web\Paths;
+
 spl_autoload_register(static function (string $class): void {
     $prefix = 'App\\';
     if (!str_starts_with($class, $prefix)) {
@@ -243,7 +245,7 @@ function e(string $value): string
       النسخة مهيأة بالفعل. هذه الصفحة معطّلة الآن — احذف مجلد <code>setup/</code> من السيرفر.
     </div>
     <div class="links">
-      <a class="primary" href="../app/index.html">واجهة الزبون</a>
+      <a class="primary" href="<?= htmlspecialchars(Paths::base(1), ENT_QUOTES, 'UTF-8') ?>">واجهة الزبون</a>
       <a href="../admin/">لوحة الإدارة</a>
     </div>
 
@@ -255,7 +257,7 @@ function e(string $value): string
       نصيحة أمنية: احذف مجلد <code>setup/</code> الآن من السيرفر.
     </p>
     <div class="links">
-      <a class="primary" href="../app/index.html">واجهة الزبون</a>
+      <a class="primary" href="<?= htmlspecialchars(Paths::base(1), ENT_QUOTES, 'UTF-8') ?>">واجهة الزبون</a>
       <a href="../admin/">لوحة الإدارة</a>
     </div>
 

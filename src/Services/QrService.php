@@ -20,19 +20,25 @@ final class QrService
     {
     }
 
-    /** الرابط الكامل الذي يُشفَّر في رمز الموقع. */
+    /**
+     * الرابط الكامل الذي يُشفَّر في رمز الموقع.
+     *
+     * الرابط لا يحوي اسم ملف داخليًا: الواجهة تُقدَّم من جذر الموقع، فالرابط
+     * المُطبوع قصير ونظيف:  https://example.com/?loc=T05
+     * وحتى لو طُبعت رموز QR قبل هذا التحديث فإن /app/index.html يوجّه تلقائيًا
+     * إلى الجذر مع الحفاظ على ?loc= (إعادة توجيه 301).
+     */
     public function locationUrl(string $baseUrl, string $code): string
     {
-        $base = rtrim($baseUrl, '/') . '/';
-        // نضع الموقع في المسار المختصر الذي تقرأه الواجهة: app/index.html?loc=CODE
-        return $base . 'app/index.html?loc=' . rawurlencode($code);
+        $base = rtrim($baseUrl, '/');
+        return $base . '/?loc=' . rawurlencode($code);
     }
 
-    /** رابط متابعة الطلب (قراءة فقط). */
+    /** رابط متابعة الطلب (قراءة فقط): /order/{الرمز} */
     public function orderUrl(string $baseUrl, string $token): string
     {
-        $base = rtrim($baseUrl, '/') . '/';
-        return $base . 'app/index.html?t=' . rawurlencode($token);
+        $base = rtrim($baseUrl, '/');
+        return $base . '/order/' . rawurlencode($token);
     }
 
     public function locationSvg(string $baseUrl, string $code, int $size = 8): string

@@ -56,9 +56,10 @@ return function (): void {
     Assert::contains($sw, "addEventListener('fetch'", 'المعالج يعترض الطلبات');
     Assert::contains($sw, 'catalog.snapshot', 'كتالوج المنتجات يُخزَّن للعمل دون اتصال');
 
-    // تسجيل عامل الخدمة بنطاق الجذر
+    // تسجيل عامل الخدمة بنطاق الجذر — المسار يأتي من إعدادات الصفحة (index.php)
     $appJs = (string) file_get_contents(BASE_PATH . '/app/js/app.js');
-    Assert::contains($appJs, "register('../sw.js', { scope: '../' })", 'التسجيل بنطاق الجذر ليشمل /api/');
+    Assert::contains($appJs, 'serviceWorker.register(CONFIG.sw, { scope: BASE })', 'التسجيل بنطاق الجذر ليشمل /api/');
+    Assert::false(str_contains($appJs, "register('../sw.js'"), 'لا مسار ثابت لعامل الخدمة (يصح عند أي مجلد فرعي)');
 
     // لا يخزّن طلبات الإدارة أو الطلبات الحساسة
     Assert::contains($sw, "startsWith('admin.')", 'طلبات الإدارة مستثناة من الكاش');
@@ -82,17 +83,17 @@ return function (): void {
        في صفحة التطبيق وثابت VERSION في عامل الخدمة.                     */
     Assert::group('اتساق رقم النسخة');
 
-    Assert::same('1.1.0', ProjectConfig::VERSION, 'رقم إصدار القالب');
+    Assert::same('1.2.0', ProjectConfig::VERSION, 'رقم إصدار القالب');
 
     $configSource = (string) file_get_contents(BASE_PATH . '/src/Config/ProjectConfig.php');
     preg_match("/const VERSION = '([^']+)'/", $configSource, $cfgVersion);
-    Assert::same('1.1.0', $cfgVersion[1] ?? '', 'رقم النسخة معرّف في ProjectConfig');
+    Assert::same('1.2.0', $cfgVersion[1] ?? '', 'رقم النسخة معرّف في ProjectConfig');
 
     $appHtmlSource = (string) file_get_contents(BASE_PATH . '/app/index.html');
-    Assert::contains($appHtmlSource, 'app.css?v=1.1.0', 'صفحة التطبيق تحمل رقم النسخة');
+    Assert::contains($appHtmlSource, 'app.css?v=1.2.0', 'صفحة التطبيق تحمل رقم النسخة');
 
     preg_match("/const VERSION = 'v?([^']+)'/", $sw, $swVersion);
-    Assert::same('1.1.0', $swVersion[1] ?? '', 'عامل الخدمة يحمل رقم النسخة');
+    Assert::same('1.2.0', $swVersion[1] ?? '', 'عامل الخدمة يحمل رقم النسخة');
 
     // لا طابور إرسال دون اتصال
     Assert::false(str_contains($sw, 'Background Sync'), 'لا يوجد طابور مزامنة للطلبات');
@@ -105,7 +106,7 @@ return function (): void {
     Assert::contains($appHtml, 'rel="manifest"', 'الواجهة تربط ملف manifest');
     Assert::contains($appHtml, 'lang="ar" dir="rtl"', 'الواجهة عربية RTL');
     Assert::contains($appHtml, 'viewport-fit=cover', 'الواجهة متوافقة مع شاشات الهواتف');
-    Assert::contains($appJs, "serviceWorker.register('../sw.js', { scope: '../' })", 'الواجهة تسجّل عامل الخدمة بنطاق الجذر');
+    Assert::contains($appJs, 'serviceWorker.register(CONFIG.sw, { scope: BASE })', 'الواجهة تسجّل عامل الخدمة بنطاق الجذر');
     Assert::contains($appHtml, 'theme-color', 'لون شريط الحالة معرّف');
 
     /* (2.1) خطأ سابق: رسائل الخطأ كانت لا تظهر أبدًا ------------------------

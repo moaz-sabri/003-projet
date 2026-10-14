@@ -6,6 +6,16 @@
 
   var $ = function (id) { return document.getElementById(id); };
 
+  /* أيقونات الرسائل — SVG مضمّن لتجنّب أي طلب شبكة إضافي */
+  var TOAST_ICONS = {
+    success: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+    error:   '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M12 7.5v5m0 3h.01M12 3.5 2.6 19a1.4 1.4 0 0 0 1.2 2.1h16.4a1.4 1.4 0 0 0 1.2-2.1L12 3.5Z"/></svg>',
+    warn:    '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 8v4.5M12 15.5h.01"/></svg>',
+    info:    '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 11v5.5M12 7.8h.01"/></svg>'
+  };
+
+  var TOAST_DURATION = { success: 2600, info: 3000, warn: 3800, error: 4600 };
+
   var UI = {
     formatPrice: function (minor) {
       var cfg = (global.App && global.App.Store.config) || {};
@@ -24,27 +34,109 @@
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     },
 
-    toast: function (message, duration) {
-      var el = $('toast');
-      if (!el) return;
-      el.textContent = message;
-      el.hidden = false;
-      clearTimeout(UI._toastTimer);
-      UI._toastTimer = setTimeout(function () { el.hidden = true; }, duration || 2600);
+    /* ====================================================================
+       الرسائل — بعد كل حدث يظهر توضيح ما الذي حدث بالضبط:
+       نجاح (أخضر) · خطأ (أحمر) · تنبيه (كهرماني) · معلومة (محايد).
+       ويمكن إرفاق إجراء مع الرسالة (مثل «تراجع» بعد إفراغ السلة).
+       الحاوية نفسها معلنة aria-live فيقرأها قارئ الشاشة تلقائيًا.
+       ==================================================================== */
+    toast: function (message, type, options) {
+      var wrap = $('toast-wrap');
+      if (!wrap) return;
+
+      // نداء مبسّط: toast(رسالة) أو toast(رسالة, 'success', {action: …})
+      if (type && typeof type === 'object') {
+        options = type;
+        type = options.type || 'info';
+      }
+      options = options || {};
+      type = TOAST_ICONS[type] ? type : 'info';
+
+      // ثلاث رسائل كحد أقصى: الأقدم يختفي فورًا عند ازدحام الشاشة
+      var live = wrap.querySelectorAll('.toast');
+      while (live.length >= 3) {
+        UI.dismiss(live[0]);
+        live = wrap.querySelectorAll('.toast');
+      }
+
+      var duration = options.duration || (options.action ? 6500 : TOAST_DURATION[type]);
+
+      var el = document.createElement('div');
+      el.className = 'toast ' + type;
+      el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+      el.innerHTML =
+        '<span class="toast-icon">' + TOAST_ICONS[type] + '</span>' +
+        '<span class="toast-text"></span>' +
+        '<span class="toast-bar" style="animation-duration:' + duration + 'ms"></span>';
+      el.querySelector('.toast-text').textContent = message;
+
+      if (options.action && options.action.label) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'toast-action';
+        button.textContent = options.action.label;
+        button.addEventListener('click', function () {
+          clearTimeout(timer);
+          UI.dismiss(el);
+          options.action.onClick();
+        });
+        el.insertBefore(button, el.querySelector('.toast-bar'));
+      }
+
+      var timer = setTimeout(function () { UI.dismiss(el); }, duration);
+      el.addEventListener('click', function (event) {
+        if (event.target.closest('.toast-action')) return;
+        clearTimeout(timer);
+        UI.dismiss(el);
+      });
+
+      wrap.appendChild(el);
     },
 
+    dismiss: function (el) {
+      if (!el || el.dataset.leaving) return;
+      el.dataset.leaving = '1';
+      el.classList.add('leaving');
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 220);
+    },
+
+    /**
+     * حالة الانقطاع: تظهر رسالة واضحة عند تعذّر الطلب، وتُرجِع زر التأكيد
+     * إلى حالته الأصلية عند عودة الاتصال (خطأ سابق: كان الزر يبقى معطّلًا).
+     */
     setOffline: function (offline) {
       var banner = $('offline-banner');
-      if (!banner) return;
-      banner.hidden = !offline;
-      document.body.classList.toggle('offline', offline);
+      if (banner) UI.setHidden(banner, !offline);
+      document.body.classList.toggle('offline', !!offline);
+
+      var submit = $('submit-order');
+      if (!submit) return;
+
+      if (!submit.dataset.idleText) submit.dataset.idleText = submit.textContent;
 
       if (offline) {
-        var submit = $('submit-order');
-        if (submit) {
-          submit.disabled = true;
-          submit.textContent = 'الطلب متوقف — لا يوجد اتصال';
-        }
+        submit.disabled = true;
+        submit.textContent = 'الطلب متوقف — لا يوجد اتصال';
+        submit.classList.remove('is-loading');
+      } else {
+        submit.disabled = false;
+        submit.textContent = submit.dataset.idleText;
+      }
+    },
+
+    /** زر أثناء تنفيذ عملية: يمنع التكرار ويعرض مؤشرًا بدل النص. */
+    setLoading: function (button, loading, label) {
+      if (!button) return;
+      if (loading) {
+        if (!button.dataset.idleLabel) button.dataset.idleLabel = button.textContent;
+        button.disabled = true;
+        button.classList.add('is-loading');
+        button.textContent = label || 'جارٍ التنفيذ…';
+      } else {
+        button.disabled = false;
+        button.classList.remove('is-loading');
+        button.textContent = button.dataset.idleLabel || button.textContent;
+        delete button.dataset.idleLabel;
       }
     },
 
@@ -76,15 +168,18 @@
       if (settings.show_contact && contact) {
         var parts = [];
         if (settings.contact_phone) {
-          parts.push('<a href="tel:' + UI.escape(settings.contact_phone) + '">' + UI.escape(settings.contact_phone) + '</a>');
+          parts.push('<a href="tel:' + UI.escape(settings.contact_phone) + '" dir="ltr">' +
+            UI.escape(settings.contact_phone) + '</a>');
         }
         if (settings.contact_instagram) {
-          parts.push('<span dir="ltr">@' + UI.escape(settings.contact_instagram) + '</span>');
+          parts.push('<a href="https://instagram.com/' + UI.escape(settings.contact_instagram).replace(/^@/, '') +
+            '" target="_blank" rel="noopener noreferrer" dir="ltr">@' +
+            UI.escape(settings.contact_instagram) + '</a>');
         }
-        contact.innerHTML = parts.join(' · ');
-        footer.hidden = parts.length === 0;
+        contact.innerHTML = parts.join('<span class="footer-sep"> · </span>');
+        UI.setHidden(footer, parts.length === 0);
       } else if (footer) {
-        footer.hidden = true;
+        UI.setHidden(footer, true);
       }
     },
 
@@ -103,7 +198,7 @@
       }
     },
 
-    renderTabs: function (categories, activeId, features) {
+    renderTabs: function (categories, activeId) {
       var tabs = $('category-tabs');
       if (!tabs) return;
 
@@ -113,16 +208,42 @@
       categories.forEach(function (category) {
         html += '<button class="tab" role="tab" data-cat="' + category.id + '" aria-selected="' +
           (String(activeId) === String(category.id)) + '">' + UI.escape(category.name) +
-          (features.search ? '' : '') +
           ' <span class="tab-count">' + category.count + '</span></button>';
       });
 
       tabs.innerHTML = html;
+
+      // إبقاء التصنيف النشط ظاهرًا عند التمرير الأفقي
+      var active = tabs.querySelector('.tab[aria-selected="true"]');
+      if (active && active.scrollIntoView) {
+        active.scrollIntoView({ block: 'nearest', inline: 'center' });
+      }
     },
 
     renderSearch: function (visible) {
       var wrap = $('search-wrap');
       if (wrap) wrap.hidden = !visible;
+    },
+
+    /** هيكل تحميل مؤقت: يمنع الوميض الأبيض أثناء جلب الكتالوج. */
+    renderSkeleton: function (count) {
+      var box = $('menu-skeleton');
+      if (!box) return;
+      var html = '';
+      for (var i = 0; i < (count || 6); i++) {
+        html += '<div class="skeleton">' +
+          '<div class="skeleton-media"></div>' +
+          '<div class="skeleton-line"></div>' +
+          '<div class="skeleton-line short"></div>' +
+        '</div>';
+      }
+      box.innerHTML = html;
+      UI.setHidden(box, false);
+    },
+
+    hideSkeleton: function () {
+      var box = $('menu-skeleton');
+      if (box) UI.setHidden(box, true);
     },
 
     renderProducts: function (products, filters) {
@@ -132,14 +253,19 @@
 
       if (!products.length) {
         grid.innerHTML = '';
-        empty.hidden = false;
-        empty.textContent = filters && filters.search
-          ? 'لا توجد نتائج مطابقة لبحثك.'
-          : 'لا توجد منتجات في هذا التصنيف حاليًا.';
+        UI.setHidden(empty, false);
+        if (filters && filters.search) {
+          $('menu-empty-title').textContent = 'لا توجد نتائج';
+          $('menu-empty-text').textContent = 'لم نجد منتجًا يطابق «' + filters.search +
+            '». جرّب كلمة أخرى أو تصفّح التصنيفات.';
+        } else {
+          $('menu-empty-title').textContent = 'القائمة قيد التحضير';
+          $('menu-empty-text').textContent = 'لم يُضف أي منتج بعد. عد بعد قليل أو اطلب من المزود.';
+        }
         return;
       }
 
-      empty.hidden = true;
+      UI.setHidden(empty, true);
 
       grid.innerHTML = products.map(function (product) {
         var tags = (product.tags || []).map(function (tag) {
@@ -164,10 +290,11 @@
         // المنتج الذي له تفاصيل يستحق الضغط على البطاقة؛ وإلا فالزر يضيف مباشرة
         var addButton = product.available === false ? '' :
           '<button class="card-add' + (quantity ? ' added' : '') + '" data-add="' + product.id +
-          '" aria-label="إضافة ' + UI.escape(product.name) + '">' + (quantity ? quantity : '+') + '</button>';
+          '" aria-label="' + (quantity ? 'في السلة: ' + quantity + ' — إضافة ' : 'إضافة ') +
+          UI.escape(product.name) + '">' + (quantity ? quantity : '+') + '</button>';
 
         return '<article class="product-card' + (product.available === false ? ' is-out' : '') + '"' +
-          (product.has_details ? ' data-detail="' + product.id + '"' : '') + '>' +
+          (product.has_details ? ' data-detail="' + product.id + '" role="button" tabindex="0"' : '') + '>' +
           '<div class="card-media">' + media +
             '<div class="card-badges">' + tags + soldBadge + '</div>' +
           '</div>' +
@@ -190,20 +317,38 @@
 
       var store = global.App.Store;
       var items = store.cart;
+      var total = items.reduce(function (sum, i) { return sum + i.quantity; }, 0);
 
-      count.textContent = items.reduce(function (sum, i) { return sum + i.quantity; }, 0);
-      count.hidden = items.length === 0;
+      var previous = count.textContent;
+      count.textContent = total;
+      count.hidden = total === 0;
+      if (String(total) !== String(previous) && total > 0) {
+        count.classList.remove('bump');
+        void count.offsetWidth;
+        count.classList.add('bump');
+      }
+
+      // الزر العائم: يظهر فقط خارج شاشتَي السلة وإتمام الطلب
+      var fab = $('cart-fab');
+      var fabCount = $('fab-count');
+      if (fab && fabCount) {
+        var showFab = total > 0 && !['cart', 'checkout'].includes(global.App.Router && global.App.Router.current());
+        fabCount.textContent = total;
+        UI.setHidden(fab, !showFab);
+      }
+
+      UI.setHidden($('clear-cart'), items.length === 0);
 
       if (!items.length) {
         list.innerHTML = '';
-        empty.hidden = false;
-        summary.hidden = true;
+        UI.setHidden(empty, false);
+        UI.setHidden(summary, true);
         if (checkoutBtn) checkoutBtn.disabled = true;
         return;
       }
 
-      empty.hidden = true;
-      summary.hidden = false;
+      UI.setHidden(empty, true);
+      UI.setHidden(summary, false);
       if (checkoutBtn) checkoutBtn.disabled = false;
 
       list.innerHTML = items.map(function (item) {
@@ -219,9 +364,9 @@
           '<div class="cart-side">' +
             '<span class="cart-line">' + UI.escape(UI.formatPrice(item.price_minor * item.quantity)) + '</span>' +
             '<div class="stepper">' +
-              '<button class="step-btn" data-cart-step="-1" data-id="' + item.product_id + '" aria-label="إنقاص">−</button>' +
+              '<button class="step-btn" data-cart-step="-1" data-id="' + item.product_id + '" aria-label="إنقاص الكمية">−</button>' +
               '<span class="step-value">' + item.quantity + '</span>' +
-              '<button class="step-btn" data-cart-step="1" data-id="' + item.product_id + '" aria-label="زيادة">+</button>' +
+              '<button class="step-btn" data-cart-step="1" data-id="' + item.product_id + '" aria-label="زيادة الكمية">+</button>' +
             '</div>' +
             '<button class="cart-remove" data-cart-remove="' + item.product_id + '">حذف</button>' +
           '</div>' +
@@ -236,11 +381,11 @@
       var field = $('field-type');
       if (!wrap || !field) return;
 
-      if (!types || types.length < 2) { field.hidden = true; return; }
-      field.hidden = false;
+      if (!types || types.length < 2) { UI.setHidden(field, true); return; }
+      UI.setHidden(field, false);
 
       wrap.innerHTML = types.map(function (type) {
-        return '<button class="choice" type="button" data-type="' + type.key + '" aria-pressed="' +
+        return '<button class="choice" type="button" data-type="' + UI.escape(type.key) + '" aria-pressed="' +
           (type.key === selected) + '">' + UI.escape(type.label) + '</button>';
       }).join('');
     },
@@ -255,10 +400,10 @@
       var singular = config.location_singular || 'الموقع';
 
       if (!required && selectedCode) {
-        field.hidden = true;
+        UI.setHidden(field, true);
         return;
       }
-      field.hidden = false;
+      UI.setHidden(field, false);
       label.textContent = 'اختر ' + singular;
 
       select.innerHTML = '<option value="">— ' + singular + ' —</option>' +
@@ -300,7 +445,7 @@
         return '<div class="field" data-field="' + UI.escape(field.key) + '">' +
           '<label for="' + inputId + '">' + UI.escape(field.label) +
           (field.required ? ' *' : '') + '</label>' + input +
-          (field.hint ? '<small class="field-hint" style="color:var(--ink-3);font-size:.76rem">' + UI.escape(field.hint) + '</small>' : '') +
+          (field.hint ? '<small class="field-hint">' + UI.escape(field.hint) + '</small>' : '') +
           '<small class="field-error" data-error-for="' + UI.escape(field.key) + '"></small>' +
         '</div>';
       }).join('');
@@ -339,7 +484,7 @@
         (product.description ? '<p class="sheet-desc">' + UI.escape(product.description) + '</p>' : '') +
         (details ? '<dl class="detail-list">' + details + '</dl>' : '');
 
-      footer.hidden = product.available === false;
+      UI.setHidden(footer, product.available === false);
       if (qty) qty.textContent = '1';
     },
 
@@ -358,7 +503,7 @@
       var track = $('success-track');
       if (track && order.tracking_url) {
         track.href = order.tracking_url;
-        track.hidden = false;
+        UI.setHidden(track, false);
       }
     },
 
@@ -372,7 +517,7 @@
       var meta = [];
       if (order.location) meta.push('<span>' + UI.escape(order.location) + '</span>');
       if (order.order_type) meta.push('<span>' + UI.escape(order.order_type) + '</span>');
-      meta.push('<span>' + UI.escape(order.time_label || '') + '</span>');
+      if (order.time_label) meta.push('<span>' + UI.escape(order.time_label) + '</span>');
       if (order.customer) meta.push('<span>' + UI.escape(order.customer) + '</span>');
       $('track-meta').innerHTML = meta.join('');
 
@@ -401,7 +546,6 @@
       if (!alert) return;
       alert.textContent = message;
       UI.setHidden(alert, false);
-      alert.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
       UI.clearFieldErrors();
       if (fields) {
@@ -412,6 +556,11 @@
           if (input && input.closest) input.closest('.field').classList.add('invalid');
         });
       }
+
+      // التركيز على أول حقل خاطئ يجعل التصحيح فوريًا
+      var firstInvalid = document.querySelector('.field.invalid input, .field.invalid select');
+      if (firstInvalid) firstInvalid.focus({ preventScroll: true });
+      else alert.scrollIntoView({ behavior: 'smooth', block: 'center' });
     },
 
     clearError: function (alertId) {

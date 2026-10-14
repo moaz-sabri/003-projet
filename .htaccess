@@ -2,24 +2,45 @@
 # إعدادات Apache على مستوى جذر المشروع
 # الهدف: منع الوصول إلى src/ و storage/ و bin/ و tests/ مع إبقاء app و admin و api.
 # يعمل على استضافات PHP العادية التي تستخدم Apache مع .htaccess.
+#
+# ملاحظة مهمة حول الروابط: واجهة الزبون تُقدَّم من الجذر "/" عبر index.php،
+# فالمسارات عامة ونظيفة: /cart و /checkout و /order/{رمز}.
+#Legacy /app/index.html يبقى يعمل، لكنه يوجّه فورًا إلى الجذر (301).
 # =============================================================================
 
 # لا تُعرض محتويات المجلدات
 Options -Indexes -MultiViews
 
-DirectoryIndex app/index.html
+# الجذر = واجهة الزبون (index.php) — لا app/index.html بعد الآن
 DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # منع الوصول إلى المسارات الحساسة entirely
-    RewriteRule ^(src|storage|bin|tests|docker)/? - [R=404,L]
+    # ---------------------------------------------------------------- منع الوصول
+    RewriteRule ^(src|storage|bin|tests|tools|docs|docker)(/|$) - [R=404,L]
     RewriteRule ^(composer\.(json|lock)|\.env|\.git) - [R=404,L]
     RewriteRule ^\. - [R=404,L]
+    RewriteRule ^(README|CHANGELOG|AUDIT_REPORT)\.md$ - [R=404,L]
 
-    # تحويل الجذر إلى واجهة الزبون
-    RewriteRule ^$ app/index.html [L]
+    # ------------------------------------------------------- روابط موحّدة (301)
+    # الرابط القديم أو المكرر يوجّه إلى الجذر، مع الحفاظ على معاملات الرابط
+    # (مثل ?loc=CODE في رموز QR المطبوعة سابقًا).
+    RewriteRule ^app/index\.html$ / [R=301,L]
+    RewriteRule ^app/$ / [R=301,L]
+    RewriteRule ^index\.php$ / [R=301,L]
+
+    # المجلدات الفرعية بلا شرطة مائلة: /admin → /admin/
+    # (وإلا حُلّت مسارات الملفات النسبية من الجذر فاختفت الأنماط والسكربتات)
+    RewriteRule ^admin$ admin/ [R=301,L]
+    RewriteRule ^setup$ setup/ [R=301,L]
+
+    # ------------------------------------------------ تطبيق صفحة واحدة (SPA)
+    # كل مسار غير موجود يُقدَّم عبر index.php، وهو من يتعرف على
+    # /cart و /checkout و /order/... — أما الملفات الموجودة فتُقدَّم كما هي.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
 </IfModule>
 
 # ترويسات أمان أساسية
@@ -31,7 +52,7 @@ DirectoryIndex index.php
 </IfModule>
 
 # لا تُخزّن استجابات الـ API الحساسة في أي ذاكرة وسيطة
-<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|log|md)$">
+<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|log)$">
     <IfModule mod_headers.c>
         Header set Cache-Control "no-store"
     </IfModule>

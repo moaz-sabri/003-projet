@@ -252,7 +252,26 @@ $snapshot = http($base . '/api/index.php?r=catalog.snapshot');
 $catalog  = $snapshot['json']['data'] ?? [];
 check('الكتالوج يعمل', ($snapshot['json']['ok'] ?? false) === true);
 check('المنتج الجديد ظاهر للزبون', in_array($productId, array_column($catalog['products'] ?? [], 'id'), true));
-check('QR الموقع: الرابط يفتح القائمة مع تحديد الموقع', str_contains((string) ($locationRow['qr_url'] ?? ''), 'app/index.html?loc='));
+// الرابط المُطبوع يجب أن يكون نظيفًا (بلا اسم ملف داخلي) ويحمل رمز الموقع
+$qrUrl = (string) ($locationRow['qr_url'] ?? '');
+check(
+    'QR الموقع: الرابط يفتح القائمة مع تحديد الموقع',
+    str_contains($qrUrl, '?loc=' . $runCode) && !str_contains($qrUrl, 'app/index.html'),
+    $qrUrl
+);
+
+// الرابط القديم يوجّه إلى الجذر مع الحفاظ على ?loc= (رموز مطبوعة سابقًا)
+$legacyRedirect = http($base . '/app/index.html?loc=' . $runCode);
+check(
+    'QR الموقع: الرابط القديم ما زال يعمل',
+    in_array($legacyRedirect['status'], [200, 301], true)
+        && str_contains($legacyRedirect['headers']['location'] ?? '/', 'loc=' . $runCode),
+    'status=' . $legacyRedirect['status'] . ' location=' . ($legacyRedirect['headers']['location'] ?? 'مفقود')
+);
+
+// الروابط النظيفة داخل الواجهة تُقدَّم بلا 404
+$cleanCart = http($base . '/cart');
+check('الرابط النظيف /cart يُقدَّم', $cleanCart['status'] === 200, 'status=' . $cleanCart['status']);
 
 // سلة فارغة
 $emptyCart = http($base . '/api/index.php?r=order.create', [
@@ -340,7 +359,12 @@ check('تفاصيل الطلب تُقرأ', $orderDetail['status'] === 200);
 check('الطلب يحتوي عناصر', count($orderDetail['json']['data']['order']['items'] ?? []) === 1);
 
 $orderQr = http($base . '/api/index.php?r=admin.order.qr&id=' . $orderId);
-check('رمز QR للطلب متاح', $orderQr['status'] === 200 && str_contains((string) ($orderQr['json']['data']['qr_url'] ?? ''), '?t='));
+$orderQrUrl = (string) ($orderQr['json']['data']['qr_url'] ?? '');
+check(
+    'رمز QR للطلب متاح (رابط نظيف بلا اسم ملف)',
+    $orderQr['status'] === 200 && str_contains($orderQrUrl, '/order/') && !str_contains($orderQrUrl, 'app/index.html'),
+    $orderQrUrl
+);
 
 $skip = http($base . '/api/index.php?r=admin.order.status', [
     'id' => $orderId, 'status' => 'in_progress',
