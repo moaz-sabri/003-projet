@@ -265,8 +265,9 @@ QR الطلب
 
 ```
 project/
+├── index.php            نقطة دخول واجهة الزبون على الجذر (روابط نظيفة)
 ├── app/
-│   ├── index.html
+│   ├── index.html       قالب الواجهة (يُقدَّم عبر index.php)
 │   ├── assets/
 │   ├── css/
 │   └── js/

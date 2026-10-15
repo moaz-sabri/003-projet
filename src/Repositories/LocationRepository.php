@@ -102,11 +102,7 @@ final class LocationRepository
 /** بادئة رموز المواقع (حرف واحد يميّز نوع النشاط داخل الرابط). */
     private function codePrefix(): string
     {
-        return match (ProjectConfig::BUSINESS_TYPE) {
-            'car_dealer'    => 'C',
-            'store', 'mall' => 'L',
-            default         => 'T',
-        };
+        return ProjectConfig::locationCodePrefix();
     }
 
     private function format(array $row): array

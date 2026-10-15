@@ -6,6 +6,11 @@ declare(strict_types=1);
  * اختبار سير العمل الكامل — نسخة نظيفة من الصفر.
  *
  *   php tools/workflow-test.php [http://host:port]
+ *   php tools/workflow-test.php [http://host:port] "كلمة_المرور"
+ *   php tools/workflow-test.php [http://host:port] --pass="كلمة_المرور"
+ *
+ * كلمة مرور المدير تُقرأ بالترتيب: المعامل الثاني، ثم --pass، ثم متغير
+ * البيئة LC_ADMIN_PASS، ثم القيمة الافتراضية (بيئة التطوير المحلية فقط).
  *
  * ينفّذ رحلة حقيقية:
  *   المدير: دخول ← تصنيف ← منتج + صورة ← موقع + QR
@@ -22,6 +27,17 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $base = rtrim($argv[1] ?? 'http://127.0.0.1:8080', '/');
+
+/** كلمة مرور المدير: معامل، أو --pass، أو متغير البيئة، أو الافتراضي. */
+$password = $argv[2] ?? '';
+if (str_starts_with($password, '--pass=')) {
+    $password = substr($password, 7);
+}
+if ($password === '') {
+    $envPass = getenv('LC_ADMIN_PASS');
+    $password = is_string($envPass) && $envPass !== '' ? $envPass : 'Test1234';
+}
+
 $jar  = [];
 
 $stats = ['pass' => 0, 'fail' => 0, 'steps' => []];
@@ -133,7 +149,7 @@ step('١. المدير — تسجيل الدخول');
 $badLogin = http($base . '/api/index.php?r=admin.login', ['username' => 'admin', 'password' => 'خطأ']);
 check('كلمة مرور خاطئة مرفوضة', $badLogin['status'] === 401, 'status=' . $badLogin['status']);
 
-$login = http($base . '/api/index.php?r=admin.login', ['username' => 'admin', 'password' => 'Test1234!']);
+$login = http($base . '/api/index.php?r=admin.login', ['username' => 'admin', 'password' => $password]);
 $csrf  = $login['json']['data']['csrf'] ?? '';
 check('تسجيل الدخول ناجح', $login['status'] === 200 && $csrf !== '', 'status=' . $login['status']);
 check('كوكي الجلسة صدر', isset($login['headers']['set-cookie']) || !empty($GLOBALS['jar']));

@@ -17,7 +17,28 @@
     location: null,
     config: {},
     settings: {},
+    company: {},
     loadedFromCache: false,
+
+    /* ---------------------------- الوضع ---------------------------- */
+
+    /** 'orders' = فيه سلة وطلبات | 'catalog' = عرض فقط */
+    mode: function () {
+      return (this.config && this.config.mode) === 'catalog' ? 'catalog' : 'orders';
+    },
+
+    /** هل يعرض المشروع نظام طلبات؟ */
+    hasOrdering: function () {
+      return (this.config && this.config.has_ordering === false) ? false : true;
+    },
+
+    /* -------------------- تسميات حسب نوع النشاط -------------------- */
+
+    productSingular: function () { return (this.config && this.config.product_singular) || 'منتج'; },
+    productPlural: function () { return (this.config && this.config.product_plural) || 'المنتجات'; },
+    catalogTitle: function () { return (this.config && this.config.catalog_title) || 'المنتجات'; },
+    catalogCta: function () { return (this.config && this.config.catalog_cta) || 'تصفّح المنتجات'; },
+    orderCta: function () { return (this.config && this.config.order_cta) || 'اطلب الآن'; },
 
     /* ----------------------------- السلة ----------------------------- */
 
@@ -124,6 +145,7 @@
       this.snapshot = data;
       this.settings = data.settings || {};
       this.config = data.config || {};
+      this.company = data.company || {};
       try {
         localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), data: data }));
       } catch (e) { /* تجاهل */ }
@@ -137,6 +159,7 @@
         var parsed = JSON.parse(raw);
         this.settings = parsed.data.settings || {};
         this.config = parsed.data.config || {};
+        this.company = parsed.data.company || {};
         this.loadedFromCache = true;
         return parsed.data;
       } catch (e) { return null; }

@@ -11,6 +11,15 @@ use App\Core\Logger;
 
 require_once __DIR__ . '/Core/Autoloader.php';
 
+/**
+ * طبّق نوع النشاط المختار في صفحة التهيئة قبل أي شيء آخر يقرأ الإعدادات.
+ * بهذا تتغيّر التسميات والوضع والخصائص في كل الطلب (الواجهة، الـ API،
+ * لوحة الإدارة) بتعديل واحد في جدول settings.
+ *
+ * آمن قبل التهيئة: يعيد نفسه بصمت إن لم تكن قاعدة البيانات موجودة بعد.
+ */
+App\Config\ProjectConfig::applyStoredPreset();
+
 $debug = (bool) app_config('debug', false);
 ini_set('display_errors', $debug ? '1' : '0');
 ini_set('log_errors', '1');

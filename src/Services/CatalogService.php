@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Config\ProjectConfig;
+use App\Core\CompanyProfile;
 use App\Core\Money;
 use App\Core\RuntimeSettings;
 use App\Repositories\CategoryRepository;
@@ -52,9 +53,10 @@ final class CatalogService
         return [
             'settings'  => $this->settingsPayload(),
             'config'    => $this->configPayload(),
+            'company'   => CompanyProfile::payload(),
             'categories' => $categories,
             'products'  => $products,
-            'locations' => ProjectConfig::feature('locations') ? $this->locations->all(true) : [],
+            'locations' => ProjectConfig::locationsEnabled() ? $this->locations->all(true) : [],
         ];
     }
 
@@ -89,15 +91,28 @@ final class CatalogService
             'currency'        => ProjectConfig::CURRENCY,
             'currency_position' => ProjectConfig::CURRENCY_POSITION,
             'timezone'        => ProjectConfig::TIMEZONE,
-            'business_type'   => ProjectConfig::BUSINESS_TYPE,
-            'location_singular' => ProjectConfig::LOCATION_SINGULAR,
-            'location_plural'   => ProjectConfig::LOCATION_PLURAL,
-            'location_required' => ProjectConfig::LOCATION_REQUIRED,
-            'location_source'   => ProjectConfig::LOCATION_SOURCE,
+
+            /* --- الوضع والتسميات: مصدرها ملف الإعداد أو type النشاط --- */
+            'mode'            => ProjectConfig::mode(),
+            'has_ordering'    => ProjectConfig::hasOrdering(),
+            'business_type'   => ProjectConfig::presetId(),
+            'business_label'  => ProjectConfig::businessLabel(),
+            'product_singular' => ProjectConfig::productSingular(),
+            'product_plural'  => ProjectConfig::productPlural(),
+            'catalog_title'   => ProjectConfig::catalogTitle(),
+            'catalog_cta'     => ProjectConfig::catalogCta(),
+            'order_cta'       => ProjectConfig::orderCta(),
+            'home_hero_title' => ProjectConfig::homeHeroTitle(),
+
+            'location_singular' => ProjectConfig::locationSingular(),
+            'location_plural'   => ProjectConfig::locationPlural(),
+            'location_required' => ProjectConfig::locationRequired(),
+            'location_source'   => ProjectConfig::locationSource(),
+            'locations_enabled' => ProjectConfig::locationsEnabled(),
             'customer_name_label' => ProjectConfig::CUSTOMER_NAME_LABEL,
             'customer_name_placeholder' => ProjectConfig::CUSTOMER_NAME_PLACEHOLDER,
             'max_qty'          => ProjectConfig::MAX_QTY_PER_ITEM,
-            'features'         => ProjectConfig::FEATURES,
+            'features'         => ProjectConfig::features(),
             'order_types'      => $types,
             'statuses'         => array_map(
                 static fn(string $key, array $def): array => ['key' => $key, 'label' => $def['label'], 'color' => $def['color']],

@@ -56,8 +56,13 @@ function app_config_file(): string
 
 $appConfigFile = app_config_file();
 
+/*
+ * الثابت LC_IN_SETUP تعرّفه صفحة التهيئة نفسها قبل تحميل هذا الملف:
+ * هي الوجهة الوحيدة التي يوجّه إليها هذا الملف عند غياب الإعدادات، فتحتاج
+ * أن تحمّله دون أن تحوّل إلى نفسها.
+ */
 if (!is_file($appConfigFile)) {
-    if (PHP_SAPI !== 'cli') {
+    if (PHP_SAPI !== 'cli' && !defined('LC_IN_SETUP')) {
         // توجيه إلى معالج التهيئة بدل أي خطأ غامض
         if (!headers_sent()) {
             header('Location: setup/index.php');

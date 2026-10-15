@@ -5,10 +5,12 @@ declare(strict_types=1);
 /**
  * أداة سطر الأوامر للتهيئة والصيانة.
  *
- *   php bin/console install --url=https://site.com --user=admin --pass=secret
+ *   php bin/console install --url=https://site.com --user=admin --pass=secret \
+ *        --preset=restaurant --name="مطعم النور"
  *   php bin/console migrate
  *   php bin/console migrate:fresh
  *   php bin/console admin:password
+ *   php bin/console preset [list|show|apply <المعرّف>]
  *   php bin/console backup
  *   php bin/console icons
  *   php bin/console qr "نص" --out=file.svg
@@ -103,6 +105,32 @@ switch ($command) {
         require_once BASE_PATH . '/src/bootstrap.php';
         \App\Core\Migrations::migrate();
 
+        /*
+         * نوع النشاط (اختياري): --preset=restaurant يحدد الوضع والتسميات
+         * كما تفعل صفحة التهيئة، فيبقى التثبيت من الطرفية مطابقًا للتثبيت من الويب.
+         */
+        $presetId = (string) ($options['preset'] ?? \App\Config\BusinessPresets::defaultId());
+        if (!\App\Config\BusinessPresets::exists($presetId)) {
+            $say('نوع نشاط غير معروف: ' . $presetId, 'err');
+            $say('المتاح: ' . implode(', ', array_keys(\App\Config\BusinessPresets::all())), 'err');
+            exit(1);
+        }
+        $preset = \App\Config\BusinessPresets::get($presetId);
+        \App\Config\ProjectConfig::setOverrides(\App\Config\BusinessPresets::toOverrides($presetId));
+
+        $runtime = \App\Config\ProjectConfig::defaultRuntimeSettings();
+        $runtime['business_preset'] = $presetId;
+        $runtime['welcome_message'] = '';
+        $runtime['show_welcome'] = '0';
+        if (!empty($options['name'])) {
+            $runtime['app_name'] = mb_substr(trim((string) $options['name']), 0, 80);
+        }
+        if (!empty($options['tagline'])) {
+            $runtime['app_tagline'] = mb_substr(trim((string) $options['tagline']), 0, 160);
+        }
+        \App\Core\RuntimeSettings::setMany($runtime);
+        \App\Core\RuntimeSettings::flush();
+
         foreach (['uploads', 'backups', 'logs', 'tmp'] as $folder) {
             $path = BASE_PATH . '/storage/' . $folder;
             if (!is_dir($path)) {
@@ -118,6 +146,9 @@ switch ($command) {
         $say('رابط الموقع : ' . $url);
         $say('لوحة الإدارة : ' . $url . '/admin/');
         $say('اسم المستخدم: ' . $user);
+        $say('نوع النشاط  : ' . ($preset['label'] ?? $presetId) . ' — ' .
+            (($preset['mode'] ?? '') === \App\Config\BusinessPresets::MODE_ORDERS
+                ? 'مع نظام الطلبات' : 'عرض فقط'));
 
         // فحص أمان إلزامي: بعض الاستضافات لا تحجب الوصول للبيانات
         // داخل الحاوية لا يصل الخادم إلى رابطه العلني، لذا نجرّب عناوين داخلية.
@@ -243,7 +274,18 @@ switch ($command) {
         $db = \App\Core\Database::pdo();
         $say('PHP: ' . PHP_VERSION);
         $say('إصدار القالب: ' . \App\Config\ProjectConfig::VERSION);
-        $say('نوع النشاط: ' . (\App\Config\ProjectConfig::BUSINESS_TYPE));
+        $say('نوع النشاط: ' . \App\Config\ProjectConfig::presetLabel()
+            . ' (' . \App\Config\ProjectConfig::presetId() . ')');
+        $say('الوضع: ' . (\App\Config\ProjectConfig::hasOrdering()
+            ? 'مع نظام الطلبات' : 'عرض فقط — بلا طلبات'));
+        $say('تسميات المنتجات: ' . \App\Config\ProjectConfig::productSingular()
+            . ' / ' . \App\Config\ProjectConfig::productPlural());
+        $companyFile = \App\Core\CompanyProfile::path();
+        $say('ملف الشركة: ' . (is_file($companyFile) ? 'موجود (' .
+            \App\Core\CompanyProfile::sectionCount() . ' قسم، ' .
+            (\App\Core\CompanyProfile::hasContactWays() ? 'فيه تواصل' : 'بلا تواصل') . ')'
+            : 'غير موجود — يعمل بإعدادات افتراضية'),
+            is_file($companyFile) ? 'ok' : 'warn');
         $say('قاعدة البيانات: ' . app_config('db.path', '?'));
         foreach (['products', 'categories', 'locations', 'orders'] as $table) {
             $count = (int) \App\Core\Database::value("SELECT COUNT(*) FROM $table");
@@ -272,6 +314,69 @@ switch ($command) {
         }
         exit(0);
     }
+
+/* --------------------- تغيير نوع النشاط والوضع --------------------- */
+    case 'preset': {
+        $ensureInstalled();
+        require_once BASE_PATH . '/src/bootstrap.php';
+        \App\Config\ProjectConfig::applyStoredPreset();
+
+        $action = $argv[2] ?? 'show';
+
+        if ($action === 'list') {
+            $say('أنواع النشاط المتاحة:');
+            $current = \App\Config\ProjectConfig::presetId();
+            foreach (\App\Config\BusinessPresets::all() as $key => $preset) {
+                $mark = $key === $current ? '  <- الحالي' : '';
+                $mode = ($preset['mode'] ?? '') === \App\Config\BusinessPresets::MODE_ORDERS
+                    ? 'مع الطلبات' : 'عرض فقط  ';
+                $say('  ' . str_pad($key, 12) . $mode . '  ' . ($preset['label'] ?? $key) . $mark);
+            }
+            $say('');
+            $say('التطبيق: php bin/console preset apply <المعرّف>');
+            exit(0);
+        }
+
+        if ($action === 'show') {
+            $say('النوع الحالي: ' . \App\Config\ProjectConfig::presetLabel()
+                . ' (' . \App\Config\ProjectConfig::presetId() . ')');
+            $say('الوضع: ' . (\App\Config\ProjectConfig::hasOrdering()
+                ? 'مع نظام الطلبات' : 'عرض فقط — بلا سلة ولا طلبات'));
+            $say('تسميات المنتجات: ' . \App\Config\ProjectConfig::productSingular()
+                . ' / ' . \App\Config\ProjectConfig::productPlural());
+            $say('');
+            $say('للعرض: php bin/console preset list');
+            exit(0);
+        }
+
+        if ($action === 'apply') {
+            $id = $argv[3] ?? '';
+            if (!\App\Config\BusinessPresets::exists($id)) {
+                $say('معرّف غير معروف: ' . $id, 'err');
+                $say('استخدم: php bin/console preset list لعرض المتاح', 'err');
+                exit(1);
+            }
+
+            $preset = \App\Config\BusinessPresets::get($id);
+            \App\Core\RuntimeSettings::set('business_preset', $id);
+            \App\Core\RuntimeSettings::flush();
+
+            $say('تم حفظ نوع النشاط: ' . ($preset['label'] ?? $id));
+            $say('الوضع الجديد: ' . (($preset['mode'] ?? '') === \App\Config\BusinessPresets::MODE_ORDERS
+                ? 'مع نظام الطلبات' : 'عرض فقط — بلا سلة ولا طلبات'));
+            $say('تسميات المنتجات: ' . ($preset['product_singular'] ?? '')
+                . ' / ' . ($preset['product_plural'] ?? ''));
+            $say('');
+            $say('تنبيه: تغيّرت حقول المنتجات وأنواع الطلبات. المنتجات المحفوظة تحتفظ');
+            $say('ببياناتها القديمة داخل extra_json، فراجع نموذج المنتج بعد التبديل.');
+            exit(0);
+        }
+
+        $say('استخدام: php bin/console preset [list|show|apply <المعرّف>]', 'err');
+        exit(1);
+    }
+
+    /* -------------------------- بيانات تجريبية -------------------------- */
 
     /* -------------------------- بيانات تجريبية -------------------------- */
     case 'seed:demo': {
@@ -337,15 +442,21 @@ switch ($command) {
 
         الأوامر المتاحة:
           install --url=... --user=... --pass=...   تهيئة النسخة لأول مرة
+                  [--preset=<نوع>] [--name=...] [--tagline=...]
           migrate                                   تحديث مخطط قاعدة البيانات
           migrate:fresh                             حذف كل البيانات وإعادة الإنشاء
           admin:password --pass=...                 تعيين كلمة مرور المدير
+          preset list|show|apply <المعرّف>         عرض أو تغيير نوع النشاط والوضع
           backup                                    إنشاء نسخة احتياطية
           icons                                     توليد أيقونات PWA
           qr "نص" --out=file.svg                    توليد رمز QR كـ SVG
           seed:demo                                 إضافة بيانات تجريبية
           security:check                           فحص حماية المسارات الحسّاسة
           status                                    عرض حالة النسخة
+
+        أنواع النشاط: restaurant | store | showroom | clinic | studio | general
+          restaurant و store و clinic و studio = مع نظام الطلبات
+          showroom و general                      = عرض فقط (بلا سلة ولا طلبات)
 
         TXT;
         exit($command === 'help' ? 0 : 1);

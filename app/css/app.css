@@ -13,7 +13,7 @@
   --surface-3:     #f0ede8;
   --ink:           #17181c;
   --ink-2:         #55595f;
-  --ink-3:         #8a8f98;
+  --ink-3:         #6b717b;   /* ثانوي: تباين ≥ 4.5:1 على الأبيض وعلى surface-2 */
   --line:          #ebe7e1;
   --line-strong:   #ded8d0;
 
@@ -65,7 +65,7 @@
     --surface-3:   #2b2f36;
     --ink:         #f2f3f5;
     --ink-2:       #a9aeb8;
-    --ink-3:       #7d838f;
+    --ink-3:       #8b919d;   /* ثانوي: تباين ≥ 4.5:1 على أسطح الوضع الليلي */
     --line:        #2b2f35;
     --line-strong: #3a3f47;
 
@@ -109,7 +109,6 @@ html, body {
 }
 
 body {
-  padding-top: calc(var(--header-h) + env(safe-area-inset-top));
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -149,16 +148,29 @@ a { color: inherit; }
 
 /* ================================ الرأس ================================ */
 
+/*
+ * الرأس ثابت بالتمرير (sticky) لا مثبَّت (fixed).
+ *
+ * هذا هو أصل عطل كان في القالب: مع fixed كان على الـ body حجز `padding-top`
+ * بقيمة ارتفاع ثابتة، بينما الرأس الفعلي أطول لأن شريط البحث والتصنيفات كانا
+ * داخله. النتيجة: تغطية أول 90px من الصفحة وثبات العطل مهما تغيّر المحتوى.
+ *
+ * sticky يحلّها من الجذر: الرأس يشغل مكانه الطبيعي في التدفق، فلا نحتاج حجزًا
+ * ولا حسابًا، ويظل ملتصقًا أعلى الشاشة عند التمرير.
+ */
 .app-header {
-  position: fixed;
-  inset: 0 0 auto 0;
+  position: sticky;
+  top: 0;
   z-index: 40;
-  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-elev) 88%, transparent);
   backdrop-filter: saturate(180%) blur(16px);
   -webkit-backdrop-filter: saturate(180%) blur(16px);
   border-bottom: 1px solid var(--line);
   padding-top: env(safe-area-inset-top);
 }
+
+/* مرساة الروابط الداخلية لا تختفي تحت الرأس اللاصق */
+html { scroll-padding-top: calc(var(--header-h) + 90px); }
 
 .header-inner {
   max-width: var(--maxw);
@@ -267,11 +279,46 @@ a { color: inherit; }
   100% { transform: scale(1); }
 }
 
-/* البحث والتصنيفات */
-.header-nav {
+/* شريط التنقل: سطر واحد ثابتHeight، بلا محتوى ثقيل */
+.main-nav {
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: 0 18px 12px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.main-nav::-webkit-scrollbar { display: none; }
+
+.nav-link {
+  position: relative;
+  flex: none;
+  padding: 10px 14px 11px;
+  font-size: .88rem;
+  font-weight: 650;
+  color: var(--ink-3);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.nav-link:hover { color: var(--ink); }
+.nav-link.is-active { color: var(--ink); border-bottom-color: var(--accent); }
+.nav-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+
+/* البحث والتصنيفات — داخل صفحة المنتجات، لا في الرأس */
+.catalog-toolbar {
+  position: sticky;
+  top: calc(var(--header-h) + env(safe-area-inset-top));
+  z-index: 20;
+  margin: 0 -18px 16px;
+  padding: 10px 18px 12px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--line);
   animation: slideDown .22s var(--ease);
 }
 @keyframes slideDown {
@@ -308,7 +355,7 @@ a { color: inherit; }
 .tabs {
   display: flex;
   gap: 8px;
-  margin-top: 11px;
+  margin-top: 10px;
   overflow-x: auto;
   scrollbar-width: none;
   padding-bottom: 2px;
@@ -522,6 +569,15 @@ a { color: inherit; }
   font-size: .87rem;
   font-weight: 600;
   display: flex; align-items: center; gap: 8px;
+}
+
+/* نسخة هادئة من الشريط التحذيري — تُستخدم لرسالة الترحيب على الصفحة الرئيسية */
+.notice-soft {
+  background: var(--surface);
+  color: var(--ink-2);
+  border-color: var(--line);
+  font-weight: 500;
+  line-height: 1.8;
 }
 
 /* الترحيب */
@@ -984,7 +1040,10 @@ a { color: inherit; }
 
 /* ============================== عامّات ============================== */
 
-/* شريط انقطاع الاتصال يزيح الرأس قليلًا حتى لا يغطّيه */
+/*
+ * شريط انقطاع الاتصال مثبَّت أعلى الشاشة، فيزيح محتوى الرأس اللاصق تحته.
+ * لا نحتاج تعديل padding على الـ body: الرأس sticky يحجز مكانه بنفسه.
+ */
 .banner {
   position: fixed; inset-block-start: 0; inset-inline: 0; z-index: 90;
   background: var(--warn); color: #fff;
@@ -993,18 +1052,22 @@ a { color: inherit; }
   display: flex; align-items: center; justify-content: center; gap: 8px;
 }
 .banner-icon { display: grid; place-items: center; flex: none; }
-body.offline .app-header { padding-block-start: 34px; }
-body.offline { padding-block-start: calc(var(--header-h) + 34px + env(safe-area-inset-top)); }
+body.offline .app-header { padding-block-start: calc(34px + env(safe-area-inset-top)); }
 
 .app-footer {
   text-align: center;
   color: var(--ink-3);
   font-size: .8rem;
   padding: 0 18px calc(24px + env(safe-area-inset-bottom));
+  display: grid;
+  gap: 6px;
+  justify-items: center;
 }
 .app-footer a { color: var(--accent); text-decoration: none; }
 .app-footer a:hover { text-decoration: underline; }
 .footer-sep { color: var(--line-strong); }
+.footer-note { max-width: 60ch; line-height: 1.7; }
+.footer-links { display: flex; flex-wrap: wrap; gap: 0 10px; justify-content: center; }
 
 .noscript {
   margin: 20px 18px;
@@ -1041,12 +1104,291 @@ body.offline { padding-block-start: calc(var(--header-h) + 34px + env(safe-area-
 }
 
 @media (max-width: 420px) {
-  .header-inner, .header-nav, .content { padding-inline: 14px; }
+  .header-inner, .main-nav, .content { padding-inline: 14px; }
+  .catalog-toolbar { margin-inline: -14px; padding-inline: 14px; }
   .product-grid, .skeleton-grid { grid-template-columns: repeat(auto-fill, minmax(142px, 1fr)); gap: 12px; }
   .loc-chip { max-width: 34vw; font-size: .76rem; }
   .cart-item { grid-template-columns: 56px 1fr auto; gap: 10px; padding: 10px; }
   .cart-thumb { width: 56px; height: 56px; }
+  /* الزر العائم يرتفع فوق شريط الرسائل حتى لا يحجبها */
+  .cart-fab { inset-block-end: calc(80px + env(safe-area-inset-bottom)); }
+  .toast { font-size: .84rem; padding: 11px 15px; }
+  .hero-title { font-size: 1.7rem; }
+  .hero { padding: 26px 20px; }
 }
+
+/* ==========================================================================
+   الصفحة الرئيسية وصفحة التواصل
+   كلها من app/data/company.json — كل ما هو هنا قابل للطي بسطر واحد.
+   ========================================================================== */
+
+/* ================================ الغلاف ================================ */
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  margin-bottom: 28px;
+}
+.hero-media { position: relative; aspect-ratio: 21 / 8; background: var(--surface-2); }
+.hero-media img { width: 100%; height: 100%; object-fit: cover; }
+
+.hero-body { padding: 34px 34px 32px; }
+
+.hero-eyebrow {
+  margin: 0 0 10px;
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--accent);
+}
+.hero-title {
+  margin: 0 0 12px;
+  font-size: clamp(1.9rem, 6vw, 2.9rem);
+  font-weight: 800;
+  letter-spacing: -.025em;
+  line-height: 1.15;
+}
+.hero-text {
+  margin: 0 0 24px;
+  font-size: 1.02rem;
+  line-height: 1.85;
+  color: var(--ink-2);
+  max-width: 62ch;
+}
+.hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* حقائق سريعة (أوقات العمل، العنوان…) داخل الغلاف */
+.hero-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 24px 0 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: .86rem;
+  color: var(--ink-2);
+}
+.hero-facts > div { display: flex; align-items: center; gap: 7px; }
+.hero-facts .ico { color: var(--accent); flex: none; }
+
+/* ============================ نقاط التميّز ============================ */
+
+.highlights {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  margin-bottom: 28px;
+}
+.highlight {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.highlight-ico {
+  display: grid; place-items: center;
+  width: 42px; height: 42px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.highlight-title { margin: 0 0 6px; font-size: 1rem; font-weight: 700; }
+.highlight-text { margin: 0; font-size: .88rem; line-height: 1.75; color: var(--ink-2); }
+
+/* ============================== الأقسام ============================== */
+
+.sections { display: grid; gap: 14px; margin-bottom: 28px; }
+
+.section {
+  display: grid;
+  gap: 22px;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 30px 32px;
+}
+/* الصورة في العمود الأول دائمًا (RTL) إلا عند flip */
+.section.flip .section-media { order: -1; }
+
+.section-ico {
+  display: inline-grid; place-items: center;
+  width: 46px; height: 46px;
+  border-radius: 15px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.section-heading {
+  margin: 0 0 10px;
+  font-size: clamp(1.25rem, 3.4vw, 1.6rem);
+  font-weight: 750;
+  letter-spacing: -.018em;
+  line-height: 1.3;
+}
+.section-text {
+  margin: 0;
+  font-size: .97rem;
+  line-height: 1.9;
+  color: var(--ink-2);
+  max-width: 68ch;
+  white-space: pre-line;
+}
+.section-media { border-radius: var(--radius); overflow: hidden; background: var(--surface-2); }
+.section-media img { width: 100%; height: 100%; max-height: 340px; object-fit: cover; }
+
+.bullets { margin: 18px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.bullets li {
+  position: relative;
+  padding-inline-start: 26px;
+  font-size: .93rem;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+.bullets li::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 4px;
+  inset-block-start: .62em;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ============================== المعرض ============================== */
+
+.gallery {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  margin-bottom: 28px;
+}
+.gallery-item {
+  margin: 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-2);
+  aspect-ratio: 1 / 1;
+}
+.gallery-item img { width: 100%; height: 100%; object-fit: cover; transition: transform var(--dur) var(--ease); }
+.gallery-item:hover img { transform: scale(1.04); }
+
+/* ========================= شريط الدعوة للعمل ========================= */
+
+.cta-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: var(--surface);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  margin-bottom: 28px;
+}
+.cta-body { min-width: 0; }
+.cta-title { margin: 0 0 6px; font-size: 1.3rem; font-weight: 750; letter-spacing: -.015em; }
+.cta-text { margin: 0; color: var(--ink-2); font-size: .93rem; line-height: 1.75; }
+
+/* ============================ التواصل ============================ */
+
+.contact-glance { margin-bottom: 12px; }
+.glance-grid,
+.contact-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+.contact-grid { margin-bottom: 22px; }
+
+.glance-item {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 15px 17px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+  transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.glance-item:hover { border-color: var(--accent-line); transform: translateY(-1px); }
+.glance-item.is-static { cursor: default; }
+.glance-item.is-static:hover { transform: none; border-color: var(--line); }
+
+.glance-ico {
+  display: grid; place-items: center;
+  width: 40px; height: 40px;
+  border-radius: 13px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+.glance-text { display: flex; flex-direction: column; min-width: 0; }
+.glance-label { font-size: .74rem; color: var(--ink-3); font-weight: 600; }
+.glance-value {
+  font-size: .93rem;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  margin-bottom: 14px;
+}
+.panel-title { margin: 0 0 14px; font-size: 1.02rem; font-weight: 700; }
+
+.hours-list { margin: 0; }
+.hours-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: .9rem;
+}
+.hours-row:last-child { border-bottom: 0; }
+.hours-row dt { color: var(--ink-2); }
+.hours-row dd { margin: 0; font-weight: 650; direction: ltr; }
+
+.address-text { margin: 0 0 14px; color: var(--ink-2); line-height: 1.8; font-size: .93rem; }
+
+/* ======================= رأس صفحة فرعية ======================= */
+
+.catalog-head { margin-bottom: 18px; }
+.catalog-sub { margin: 6px 0 0; color: var(--ink-3); font-size: .88rem; }
+
+/* ==================== الشاشات العريضة ==================== */
+
+@media (min-width: 760px) {
+  .hero-media { aspect-ratio: 21 / 7; }
+  .hero-body { padding: 44px 44px 40px; }
+  .section { grid-template-columns: 1.25fr 1fr; padding: 36px 40px; }
+  /* في RTL العمود الأول نص، وflip ينقل الصورة إلى اليمين */
+  .section.flip { grid-template-columns: 1fr 1.25fr; }
+  .cta-band { padding: 34px 40px; }
+}
+
+/* ==================== وضع العرض فقط ==================== */
+
+/*
+ * لا حاجة لأي قاعدة هنا: في هذا الوضع لا يبقى زر إضافة ولا سلة في الصفحة.
+ * القاعدة الوحيدة أن البطاقة كلها قابلة للضغط (is-openable).
+ */
+.product-card.is-openable { cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

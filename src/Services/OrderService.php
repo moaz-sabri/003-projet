@@ -207,7 +207,7 @@ final class OrderService
         // (8) موقع معطّل أو غير موجود + اشتراط الموقع → رفض الطلب على السيرفر
         if ($location === null || !$location['active']) {
             if ($required) {
-                throw new HttpError('location_required', 'يجب اختيار ' . ProjectConfig::LOCATION_SINGULAR . ' صالحة قبل إرسال الطلب.', 422, [
+                throw new HttpError('location_required', 'يجب اختيار ' . ProjectConfig::locationSingular() . ' صالحة قبل إرسال الطلب.', 422, [
                     'fields' => ['location' => 'الموقع غير صالح أو غير نشط.'],
                 ]);
             }

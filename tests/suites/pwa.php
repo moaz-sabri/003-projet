@@ -71,6 +71,9 @@ return function (): void {
     Assert::false(str_contains($sw, "endsWith(asset.replace('./', ''))"), 'مطابقة هيكل التطبيق دقيقة (لا endsWith فارغ)');
     Assert::contains($sw, 'function isShellAsset(', 'توجد دالة مطابقة دقيقة للمسارات');
     Assert::contains($sw, 'lc-data-', 'كاش منفصل لبيانات الكتالوج');
+    // بعد الانتقال للروابط النظيفة: فتح /cart دون اتصال لا يجوز أن يفشل
+    Assert::contains($sw, "if (request.mode === 'navigate')", 'التنقّل يُخدَم من كاش الهيكل عند غياب الاتصال');
+    Assert::contains($sw, 'const shellUrl = SCOPE;', 'نسخة الهيكل المخزّنة هي جذر الموقع');
 
     // خطأ سابق: cache.addAll يرسل الطلبات دفعة واحدة، ويفشل كليًا على
     // الخوادم قليلة العمّال (مثل php -S) فيبقى الكاش فارغًا بلا اتصال.
@@ -78,22 +81,29 @@ return function (): void {
     Assert::contains($sw, 'Promise.allSettled', 'كل ملف يُخزَّن على حدة مع تجاهل الفشل');
     Assert::contains($sw, 'async function precache()', 'دالة تخزين مسبق مرنة');
 
-    /* (1.1) اتساق رقم النسخة -------------------------------------------
+/* (1.1) اتساق رقم النسخة -------------------------------------------
        رقم النسخة معرّف في ProjectConfig، ويجب أن يطابق سمة الاستبدال
-       في صفحة التطبيق وثابت VERSION في عامل الخدمة.                     */
+       في صفحة التطبيق وثابت VERSION في عامل الخدمة.
+
+       المرجع هنا ProjectConfig::VERSION لا رقم مكتوب: الغرض من الاختبار
+       كشف الانحراف بين الملفات الثلاثة، لا تثبيت قيمة بعينها. فكتابة الرقم
+       داخل الاختبار كانت تُنتج فشلًا كاذبًا عند كل رفع نسخة.            */
     Assert::group('اتساق رقم النسخة');
 
-    Assert::same('1.2.0', ProjectConfig::VERSION, 'رقم إصدار القالب');
+    $expected = ProjectConfig::VERSION;
+
+    Assert::true((bool) preg_match('/^\d+\.\d+\.\d+$/', $expected), 'رقم إصدار القالب دلالي (x.y.z)');
 
     $configSource = (string) file_get_contents(BASE_PATH . '/src/Config/ProjectConfig.php');
     preg_match("/const VERSION = '([^']+)'/", $configSource, $cfgVersion);
-    Assert::same('1.2.0', $cfgVersion[1] ?? '', 'رقم النسخة معرّف في ProjectConfig');
+    Assert::same($expected, $cfgVersion[1] ?? '', 'رقم النسخة معرّف في ProjectConfig');
 
     $appHtmlSource = (string) file_get_contents(BASE_PATH . '/app/index.html');
-    Assert::contains($appHtmlSource, 'app.css?v=1.2.0', 'صفحة التطبيق تحمل رقم النسخة');
+    Assert::contains($appHtmlSource, 'app.css?v=' . $expected, 'صفحة التطبيق تحمل رقم النسخة');
+    Assert::contains($appHtmlSource, 'js/app.js?v=' . $expected, 'سكربت التطبيق يحمل رقم النسخة');
 
     preg_match("/const VERSION = 'v?([^']+)'/", $sw, $swVersion);
-    Assert::same('1.2.0', $swVersion[1] ?? '', 'عامل الخدمة يحمل رقم النسخة');
+    Assert::same($expected, $swVersion[1] ?? '', 'عامل الخدمة يحمل رقم النسخة');
 
     // لا طابور إرسال دون اتصال
     Assert::false(str_contains($sw, 'Background Sync'), 'لا يوجد طابور مزامنة للطلبات');

@@ -148,7 +148,11 @@
     el.innerHTML =
       '<span class="toast-icon">' + TOAST_ICONS[type] + '</span>' +
       '<span class="toast-text"></span>' +
-      '<span class="toast-bar" style="animation-duration:' + duration + 'ms"></span>';
+      '<span class="toast-bar"></span>';
+
+      // مدة الشريط تُضبط عبر CSSOM وليس سمة style مضمّنة،
+      // لأن سياسة CSP في هذه اللوحة لا تسمح بالأنماط المضمّنة.
+      el.querySelector('.toast-bar').style.animationDuration = duration + 'ms';
     el.querySelector('.toast-text').textContent = message;
 
     if (options.action && options.action.label) {
@@ -672,6 +676,8 @@
       state.products = data.products;
       state.categories = data.categories;
       state.productFields = data.fields;
+      state.detailFields = data.detail_fields || [];
+      state.labels = data.labels || state.labels;
       renderProducts();
     }).catch(function (error) { toast(error.message, 'error'); });
   }
@@ -731,6 +737,26 @@
         '<input type="text" data-extra="' + escapeHtml(field.key) + '" value="' + escapeHtml(value) + '"></div>';
     }).join('');
 
+    /* حقول التفاصيل: تُملأ من ملف company.json/types — تظهر عند اختيار نوع النشاط */
+    var detailFields = (state.detailFields || []).map(function (field) {
+      var value = (product && product.extra) ? (product.extra[field.key] || '') : '';
+      var hint = field.hint ? '<div class="field-hint">' + escapeHtml(field.hint) + '</div>' : '';
+      if (field.type === 'select') {
+        return '<div class="field full"><label>' + escapeHtml(field.label) + '</label><select data-detail="' +
+          escapeHtml(field.key) + '"><option value="">—</option>' +
+          (field.options || []).map(function (opt) {
+            return '<option value="' + escapeHtml(opt.value) + '"' +
+              (String(value) === String(opt.value) ? ' selected' : '') + '>' + escapeHtml(opt.label) + '</option>';
+          }).join('') + '</select>' + hint + '</div>';
+      }
+      if (field.type === 'number') {
+        return '<div class="field"><label>' + escapeHtml(field.label) + '</label>' +
+          '<input type="number" data-detail="' + escapeHtml(field.key) + '" value="' + escapeHtml(value) + '">' + hint + '</div>';
+      }
+      return '<div class="field full"><label>' + escapeHtml(field.label) + '</label>' +
+        '<textarea data-detail="' + escapeHtml(field.key) + '" maxlength="1200">' + escapeHtml(value) + '</textarea>' + hint + '</div>';
+    }).join('');
+
     openModal(product ? 'تعديل منتج' : 'منتج جديد', '' +
       '<div class="field-row">' +
         '<div class="field"><label>اسم المنتج *</label><input id="p-name" value="' + escapeHtml(product ? product.name : '') + '" maxlength="120"></div>' +
@@ -753,7 +779,8 @@
           '<span class="switch-track"></span> مميّز</label>' +
         '</div>' +
       '</div>' +
-      (extraFields ? '<h4 class="section-title bordered">حقول إضافية</h4>' + extraFields : ''),
+      (extraFields ? '<h4 class="section-title bordered">حقول إضافية</h4>' + extraFields : '') +
+      (detailFields ? '<h4 class="section-title bordered">تفاصيل المنتج</h4>' + detailFields : ''),
       function () {
         var name = $('p-name').value.trim();
         if (!name) { toast('اكتب اسم المنتج قبل الحفظ.', 'error'); return false; }
@@ -761,6 +788,11 @@
         var extra = {};
         document.querySelectorAll('[data-extra]').forEach(function (el) {
           extra[el.getAttribute('data-extra')] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
+        });
+
+        var details = {};
+        document.querySelectorAll('[data-detail]').forEach(function (el) {
+          details[el.getAttribute('data-detail')] = el.value;
         });
 
         var payload = {
@@ -772,7 +804,8 @@
           description: $('p-desc').value,
           is_available: $('p-available').checked ? 1 : 0,
           is_featured: $('p-featured').checked ? 1 : 0,
-          extra: extra
+          extra: extra,
+          details: details
         };
 
         var chain = Promise.resolve();
@@ -919,10 +952,71 @@
 
   /* ============================ الإعدادات ============================ */
 
+/**
+   * بطاقة تعريفية داخل صفحة الإعدادات: تُظهر نوع النشاط والوضع وحالة ملف
+   * الشركة. الغرض منها أن يعرف المستخدم من أين يأتي محتوى الموقع فعلًا،
+   * فلا يبحث عن حقل مخفي في لوحة لا تحتويه أصلًا.
+   */
+  function renderProjectIdentity() {
+    var config = state.config || {};
+    var company = state.company || {};
+    var box = $('project-identity');
+    if (!box) return;
+
+    var rows = [
+      ['نوع النشاط', config.business_label || '—'],
+      ['الوضع', config.has_ordering
+        ? 'مع نظام الطلبات (سلة، إتمام طلب، متابعة)'
+        : 'عرض فقط — بلا سلة ولا طلبات'],
+      ['تسميات المنتجات', (config.product_singular || '') + ' / ' + (config.product_plural || '')],
+      ['صفحة المنتجات', config.catalog_title || '—'],
+      ['المواقع', config.locations_enabled
+        ? (config.location_plural || 'مفعّلة')
+        : 'معطّلة']
+    ];
+
+    var html = '<div class="detail-grid">' + rows.map(function (row) {
+      return '<div class="detail-box"><div class="k">' + escapeHtml(row[0]) +
+        '</div><div class="v">' + escapeHtml(row[1]) + '</div></div>';
+    }).join('') + '</div>';
+
+    html += '<p class="field-hint">لتغيير الوضع أو التسميات أو أنواع الطلبات: عدّل ' +
+      '<code>src/Config/BusinessPresets.php</code> ثم نفّذ ' +
+      '<code>php bin/console preset:apply</code>.</p>';
+
+    box.innerHTML = html;
+  }
+
+  /** حالة ملف معلومات الشركة — المرجع الوحيد لمحتوى الصفحتين. */
+  function renderCompanyFile() {
+    var company = state.company || {};
+    var box = $('company-file');
+    if (!box) return;
+
+    var path = company.path || 'app/data/company.json';
+
+    var html = '<div class="detail-grid">' +
+      '<div class="detail-box"><div class="k">الملف</div><div class="v"><code>' +
+        escapeHtml(path) + '</code></div></div>' +
+      '<div class="detail-box"><div class="k">الحالة</div><div class="v">' +
+        (company.exists
+          ? 'موجود · ' + (company.sections || 0) + ' قسم' +
+            (company.has_contact ? ' · فيه وسائل تواصل' : ' · بلا وسائل تواصل بعد')
+          : 'غير موجود — الصفحتان تعملان بإعدادات افتراضية') +
+      '</div></div></div>';
+
+    html += '<p class="field-hint">اسم النشاط والنبذة والصور ووسائل التواصل وأوقات العمل ' +
+      'والأقسام كلها في هذا الملف الواحد. الدليل الكامل لكل مفتاح في ' +
+      '<code>app/data/README.md</code>.</p>';
+
+    box.innerHTML = html;
+  }
+
   function loadSettings() {
     return api('admin.settings').then(function (data) {
       state.settings = data.settings;
       state.config = data.config;
+      state.company = data.company || {};
       // حالات الطلبات متاحة ضمن إعدادات النسخة — تُحمَّل مرة واحدة
       if (data.config && data.config.statuses) {
         state.statuses = data.config.statuses;
@@ -951,6 +1045,8 @@
       '</div>' +
       '<div class="form-actions"><button class="btn btn-primary" type="submit">حفظ الإعدادات</button></div>';
 
+    renderProjectIdentity();
+
     form.onsubmit = function (event) {
       event.preventDefault();
       var btn = form.querySelector('button[type="submit"]');
@@ -972,12 +1068,14 @@
         state.settings = data.settings;
         renderSettingsForm();
         renderBrandPreview();
+    renderCompanyFile();
         toast('تم حفظ الإعدادات. تظهر التغييرات في واجهة الزبون مباشرة.', 'success');
       }).catch(function (error) { toast(error.message, 'error'); })
         .finally(function () { setLoading(btn, false); });
     };
 
     renderBrandPreview();
+    renderCompanyFile();
 
     function toggle(id, label, checked) {
       return '<label class="switch me-lg"><input type="checkbox" id="' + id + '"' +
@@ -988,7 +1086,7 @@
   function renderBrandPreview() {
     var s = state.settings || {};
     var preview = $('brand-preview');
-    preview.innerHTML = (s.logo_path ? '<img src="' + escapeHtml(s.logo_path) + '" alt="">' : '') +
+    preview.innerHTML = (s.logo_url ? '<img src="' + escapeHtml(s.logo_url) + '" alt="">' : '') +
       '<div><h4>' + escapeHtml(s.app_name || 'اسم النشاط') + '</h4>' +
       '<p>' + escapeHtml(s.app_tagline || '') + '</p></div>';
     $('side-app-name').textContent = s.app_name || 'لوحة الإدارة';

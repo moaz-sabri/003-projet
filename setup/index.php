@@ -12,22 +12,15 @@ declare(strict_types=1);
 declare(strict_types=1);
 
 // لا نعتمد على bootstrap لأنه يحوّل إلى هذه الصفحة عند غياب الإعدادات.
+// لكن app_config_file() معرّفة في Autoloader، فنحمّل ذلك الملف مع عَلَم
+// يمنع التوجيه الذاتي. والمحمّل المكرر الذي كان هنا كان سبب خطأ قاتل
+// في كل طلب يصل إلى صفحة التهيئة.
 define('BASE_PATH', dirname(__DIR__));
-date_default_timezone_set('Asia/Beirut');
-mb_internal_encoding('UTF-8');
+define('LC_IN_SETUP', true);
+
+require_once BASE_PATH . '/src/Core/Autoloader.php';
 
 use App\Core\Web\Paths;
-
-spl_autoload_register(static function (string $class): void {
-    $prefix = 'App\\';
-    if (!str_starts_with($class, $prefix)) {
-        return;
-    }
-    $file = BASE_PATH . '/src/' . str_replace('\\', '/', substr($class, strlen($prefix))) . '.php';
-    if (is_file($file)) {
-        require_once $file;
-    }
-});
 
 $configFile = app_config_file();
 $installed  = is_file($configFile);
@@ -37,6 +30,62 @@ $warnings = [];
 $success = false;
 $generatedPassword = '';
 $securityAlert = null;
+
+/**
+ * أنواع النشاط الجاهزة — المصدر الوحيد لتسميات المشروع ووضعه.
+ * تُقرأ مباشرة من BusinessPresets حتى لا تتكرر القوائم في مكانين.
+ *
+ * @var array<string, array<string, mixed>>
+ */
+$presets = \App\Config\BusinessPresets::all();
+
+/** يبني مسوّدة company.json من إجابات التهيئة (نفس البنية في app/data/company.json). */
+$buildCompanyJson = static function (array $preset, string $name, string $tagline): array {
+    $doc = [
+        'schema_version' => \App\Core\CompanyProfile::SCHEMA_VERSION,
+        'brand' => [
+            'name'        => $name,
+            'tagline'     => $tagline,
+            'logo'        => '',
+            'hero_image'  => '',
+            'cover_image' => '',
+        ],
+        'about' => [
+            'summary'    => 'اكتب هنا نبذة من سطرين تصف نشاطك: ماذا تقدّم ولمن.',
+            'story'      => '',
+            'highlights' => [],
+            'gallery'    => [],
+        ],
+        'contact' => [
+            'phone' => '', 'whatsapp' => '', 'email' => '',
+            'instagram' => '', 'facebook' => '', 'telegram' => '',
+            'tiktok' => '', 'youtube' => '', 'address' => '', 'map_url' => '',
+            'working_hours' => [],
+        ],
+        'sections' => [],
+        'cta' => [
+            'title'        => 'جاهز للبدء؟',
+            'text'         => 'تواصل معنا مباشرة وسنرد عليك في أقرب وقت.',
+            'button_label' => 'تواصل معنا',
+            'button_url'   => '',
+        ],
+        'seo' => ['title' => '', 'description' => '', 'keywords' => ''],
+        'footer' => ['note' => '', 'links' => []],
+    ];
+
+    // نبذة واحدة قابلة للتعديل: تُملأ مرة واحدة في كل المشاريع
+    if (($preset['mode'] ?? '') === \App\Config\BusinessPresets::MODE_CATALOG) {
+        $doc['sections'][] = [
+            'icon'    => 'users',
+            'title'   => 'من نحن؟',
+            'body'    => 'اكتب هنا قصتك: منذ متى تعمل، وما الذي يقدّمه نشاطك بالضبط. '
+                       . 'هذه الفقرة هي أول ما يقرؤه الزائر، فاجعلها واضحة ومختصرة.',
+            'bullets' => [],
+        ];
+    }
+
+    return $doc;
+};
 
 /** كتابة ملف الإعدادات المحلية بصلاحيات آمنة. */
 $writeConfig = static function (array $config) use ($configFile): void {
@@ -77,6 +126,22 @@ if (!$installed && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'مجلد storage غير قابل للكتابة. أعطِه صلاحية 755 أو 775 من لوحة الاستضافة.';
     }
 
+    // نوع النشاط: يحدد الوضع (طلبات أو عرض فقط) وكل التسميات
+    $presetId = trim((string) ($_POST['business_preset'] ?? ''));
+    if (!isset($presets[$presetId])) {
+        $presetId = \App\Config\BusinessPresets::defaultId();
+    }
+    $preset = $presets[$presetId];
+
+    $companyName = trim((string) ($_POST['company_name'] ?? ''));
+    if ($companyName === '') {
+        $errors[] = 'اسم النشاط مطلوب — يظهر في رأس الصفحة ورسائل QR.';
+    } elseif (mb_strlen($companyName) > 80) {
+        $errors[] = 'اسم النشاط طويل جدًا (80 محرفًا كحد أقصى).';
+    }
+
+    $companyTagline = mb_substr(trim((string) ($_POST['company_tagline'] ?? '')), 0, 160);
+
     if ($errors === []) {
         $writeConfig([
             'installed_at' => date('c'),
@@ -95,6 +160,36 @@ if (!$installed && $_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             require_once BASE_PATH . '/src/bootstrap.php';
             \App\Core\Migrations::migrate();
+
+            // اختيار المستخدم يبقى قراره هو: نحفظ معرّفه ثم نطبّقه،
+            // فلا تُستبدل تسمياتُه بما في الثوابت.
+            \App\Config\ProjectConfig::setOverrides(\App\Config\BusinessPresets::toOverrides($presetId));
+
+            $settings = \App\Config\ProjectConfig::defaultRuntimeSettings();
+            $settings['app_name']        = $companyName;
+            $settings['app_tagline']     = $companyTagline;
+            $settings['welcome_message'] = '';
+            $settings['show_welcome']    = '0'; // الغلاف بدل صفحة الترحيب القديمة
+            $settings['business_preset'] = $presetId;
+            \App\Core\RuntimeSettings::setMany($settings);
+            \App\Core\RuntimeSettings::flush();
+
+            // ملف معلومات الشركة: لا نكتبه إن كان المستخدم كتبه بنفسه
+            if (!\App\Core\CompanyProfile::exists()) {
+                $companyJson = BASE_PATH . '/app/data/company.json';
+                if (!is_dir(dirname($companyJson))) {
+                    mkdir(dirname($companyJson), 0775, true);
+                }
+                $doc = $buildCompanyJson($preset, $companyName, $companyTagline);
+                $encoded = json_encode(
+                    $doc,
+                    JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                );
+                if (!\App\Core\StorageWriter::write($companyJson, $encoded . "\n", 0644)) {
+                    $warnings[] = 'تعذّر إنشاء ملف معلومات الشركة (app/data/company.json). '
+                        . 'أنشئه يدويًا أو امنح المجلد صلاحية 755.';
+                }
+            }
 
             foreach (['uploads', 'backups', 'logs', 'tmp'] as $folder) {
                 $path = BASE_PATH . '/storage/' . $folder;
@@ -216,6 +311,37 @@ function e(string $value): string
   .links a.primary { background: #16181d; color: #fff; border-color: #16181d; }
   code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; font-size: .86em; direction: ltr; display: inline-block; }
   .hint { font-size: .82rem; color: #6b7280; margin-top: 6px; }
+  fieldset { border: 0; padding: 0; margin: 26px 0 0; }
+  legend { padding: 0; margin-bottom: 4px; font-size: 1rem; font-weight: 700; }
+  .preset-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .preset { position: relative; display: block; }
+  .preset input { position: absolute; opacity: 0; pointer-events: none; }
+  .preset-card {
+    display: block; height: 100%; cursor: pointer;
+    border: 1.5px solid #e6e8ec; border-radius: 14px; padding: 14px 15px;
+    background: #fafbfc; transition: border-color .18s, background .18s, box-shadow .18s;
+  }
+  .preset-card:hover { border-color: #c9ced6; background: #fff; }
+  .preset input:checked + .preset-card {
+    border-color: #c2410c; background: #fff; box-shadow: 0 0 0 3px rgba(194,65,12,.12);
+  }
+  .preset input:focus-visible + .preset-card { outline: 2px solid #c2410c; outline-offset: 2px; }
+  .preset-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .preset-emoji { font-size: 1.3rem; line-height: 1; }
+  .preset-name { font-weight: 700; font-size: .95rem; }
+  .preset-sum { font-size: .8rem; color: #6b7280; line-height: 1.6; }
+  .preset-badge {
+    display: inline-block; margin-top: 9px; padding: 3px 9px;
+    border-radius: 999px; font-size: .7rem; font-weight: 700;
+  }
+  .preset-badge.orders { background: #fdf1e8; color: #9a3412; }
+  .preset-badge.catalog { background: #eaf0fe; color: #1d4ed8; }
+  .chosen {
+    margin-top: 12px; padding: 12px 14px; border-radius: 12px;
+    background: #f5f6f8; border: 1px solid #e6e8ec;
+    font-size: .85rem; color: #4b5563; line-height: 1.75;
+  }
+  .chosen b { color: #16181d; }
 </style>
 </head>
 <body>
@@ -285,6 +411,55 @@ function e(string $value): string
     <?php endif; ?>
 
     <form method="post" autocomplete="off">
+
+      <fieldset>
+        <legend>ما نوع نشاطك؟</legend>
+        <p class="hint" style="margin-bottom:14px">
+          الاختيار يحدد ما سيظهر في الموقع كله: التسميات، وأنواع الطلبات، وما إذا كانت
+          هناك سلة أم لا. يمكنك تعديله لاحقًا من <code>src/Config/ProjectConfig.php</code>.
+        </p>
+        <div class="preset-grid">
+          <?php
+          $icons = [
+              'restaurant' => '🍽️', 'store' => '🛍️', 'showroom' => '🚗',
+              'clinic' => '🩺', 'studio' => '🎨', 'general' => '🏢',
+          ];
+          $postedPreset = (string) ($_POST['business_preset'] ?? \App\Config\BusinessPresets::defaultId());
+          foreach ($presets as $key => $item):
+              $isOrders = ($item['mode'] ?? '') === \App\Config\BusinessPresets::MODE_ORDERS;
+          ?>
+            <label class="preset">
+              <input type="radio" name="business_preset" value="<?= e($key) ?>"
+                     data-sum="<?= e($item['summary'] ?? '') ?>"
+                     data-orders="<?= $isOrders ? '1' : '0' ?>"
+                     <?= $postedPreset === $key ? 'checked' : '' ?>>
+              <span class="preset-card">
+                <span class="preset-top">
+                  <span class="preset-emoji" aria-hidden="true"><?= $icons[$key] ?? '🏢' ?></span>
+                  <span class="preset-name"><?= e($item['label'] ?? $key) ?></span>
+                </span>
+                <span class="preset-sum"><?= e($item['summary'] ?? '') ?></span>
+                <span class="preset-badge <?= $isOrders ? 'orders' : 'catalog' ?>">
+                  <?= $isOrders ? 'مع نظام الطلبات' : 'عرض فقط — بلا طلبات' ?>
+                </span>
+              </span>
+            </label>
+          <?php endforeach; ?>
+        </div>
+        <div class="chosen" id="preset-detail"></div>
+      </fieldset>
+
+      <label for="company_name">اسم النشاط *</label>
+      <input type="text" id="company_name" name="company_name" required maxlength="80"
+             value="<?= e($_POST['company_name'] ?? '') ?>"
+             placeholder="مثال: مؤسسة النور للتجارة">
+
+      <label for="company_tagline">وصف قصير</label>
+      <input type="text" id="company_tagline" name="company_tagline" maxlength="160"
+             value="<?= e($_POST['company_tagline'] ?? '') ?>"
+             placeholder="مثال: تجارة جملة وتوزيع منذ 1998">
+      <div class="hint">سطر واحد يظهر تحت الاسم في كل الصفحات.</div>
+
       <label for="base_url">رابط الموقع</label>
       <input type="url" id="base_url" name="base_url" dir="ltr"
              value="<?= e($_POST['base_url'] ?? '') ?>"
@@ -304,6 +479,27 @@ function e(string $value): string
 
       <button type="submit">تهيئة الآن</button>
     </form>
+
+    <script nonce="setup-local">
+    (function () {
+      var box = document.getElementById('preset-detail');
+      var inputs = document.querySelectorAll('input[name="business_preset"]');
+      if (!box || !inputs.length) return;
+
+      function paint() {
+        var picked = document.querySelector('input[name="business_preset"]:checked');
+        if (!picked) { box.textContent = ''; return; }
+        var orders = picked.dataset.orders === '1';
+        var result = orders
+          ? 'ستحصل على سلة وصفحة إتمام الطلب ومتابعة الطلب، وأنواع طلبات قابلة للتعديل (مثل: في المحل، سفري، توصيل).'
+          : 'ستحصل على معرض منتجات للتصفح فقط بلا سلة ولا طلبات. قناة الاستفسار الوحيدة هي صفحة "تواصل معنا".';
+        box.textContent = 'النتيجة: ' + result;
+      }
+
+      inputs.forEach(function (input) { input.addEventListener('change', paint); });
+      paint();
+    })();
+    </script>
   <?php endif; ?>
 </div>
 </body>

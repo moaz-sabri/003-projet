@@ -11,7 +11,7 @@
   --surface-3:   #f0ede8;
   --ink:         #17181c;
   --ink-2:       #55595f;
-  --ink-3:       #8a8f98;
+  --ink-3:       #6b717b;   /* ثانوي: تباين ≥ 4.5:1 على الأبيض وعلى surface-2 */
   --line:        #ebe7e1;
   --line-strong: #ded8d0;
 
@@ -58,7 +58,7 @@
     --surface-3:   #2b2f36;
     --ink:         #f2f3f5;
     --ink-2:       #a9aeb8;
-    --ink-3:       #7d838f;
+    --ink-3:       #8b919d;   /* ثانوي: تباين ≥ 4.5:1 على أسطح الوضع الليلي */
     --line:        #2b2f35;
     --line-strong: #3a3f47;
 

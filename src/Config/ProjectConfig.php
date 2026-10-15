@@ -22,6 +22,54 @@ namespace App\Config;
 final class ProjectConfig
 {
     /* =====================================================================
+     * طبقة التغطية وقت التشغيل (Runtime Overrides)
+     * =====================================================================
+     * الثوابت أدناه هي القيم الافتراضية. أما ما يختاره المستخدم في صفحة
+     * التهيئة (نوع النشاط) فيُخزَّن في جدول settings ويُطبَّق هنا عبر
+     * setOverrides()، فتتغيّر التسميات والوضع والخصائص بلا تعديل الكود.
+     *
+     * القاعدة: كل بنية قابلة للتغيير تُقرأ عبر دالة (mode، locationSingular)
+     * لا عبر الثابت مباشرة. والثابت يبقى مرجعًا احتياطيًا للمشاريع التي
+     * لا تمرّ بصفحة التهيئة.
+     * ===================================================================== */
+
+    /** @var array<string, mixed>|null */
+    private static ?array $overrides = null;
+
+    /**
+     * يطبّق تغطية نوع النشاط المختار. تُستدعى مرة واحدة لكل طلب.
+     *
+     * @param array<string, mixed>|null $overrides حزمة من BusinessPresets::toOverrides()
+     *                                             أو null لإلغاء التغطية.
+     */
+    public static function setOverrides(?array $overrides): void
+    {
+        self::$overrides = ($overrides === null || $overrides === []) ? null : $overrides;
+    }
+
+    /**
+     * يقرأ نوع النشاط المحفوظ في الإعدادات ويطبّقه.
+     * آمنة للاستدعاء أكثر من مرة، ولا تفشل إن لم تكن قاعدة البيانات جاهزة بعد.
+     */
+    public static function applyStoredPreset(): void
+    {
+        try {
+            $id = \App\Core\RuntimeSettings::get('business_preset', '');
+            self::setOverrides(
+                BusinessPresets::exists($id) ? BusinessPresets::toOverrides($id) : null
+            );
+        } catch (\Throwable) {
+            self::setOverrides(null);
+        }
+    }
+
+    /** @return mixed قيمة التغطية إن وُجدت، وإلا القيمة الافتراضية */
+    private static function ov(string $key, mixed $default = null): mixed
+    {
+        return self::$overrides[$key] ?? $default;
+    }
+
+    /* =====================================================================
      * إصدار القالب — المرجع الوحيد لرقم النسخة
      * =====================================================================
      * عند رفع نسخة جديدة حدّث الرقم هنا فقط، ثم وزّعه على:
@@ -31,13 +79,92 @@ final class ProjectConfig
      * ===================================================================== */
 
     /** رقم إصدار القالب (دلالي). */
-    public const VERSION = '1.2.0';
+    public const VERSION = '1.3.0';
 
     /** تاريخ اعتماد هذه النسخة. */
-    public const RELEASED_AT = '2026-10-14';
+    public const RELEASED_AT = '2026-10-15';
 
     /* =====================================================================
-     * أ. الهوية والعرض
+     * أ. وضع المشروع: مع نظام طلبات أم عرض فقط
+     * ===================================================================== */
+
+    /** المشروع فيه سلة وطلبات وإتمام طلب. */
+    public const MODE_ORDERS  = BusinessPresets::MODE_ORDERS;
+
+    /** المشروع عرض فقط: منتجات للتصفح، بلا سلة ولا طلبات. */
+    public const MODE_CATALOG = BusinessPresets::MODE_CATALOG;
+
+    /** @return self::MODE_* وضع المشروع الفعّال */
+    public static function mode(): string
+    {
+        $mode = (string) self::ov('mode', self::MODE_ORDERS);
+        return $mode === self::MODE_CATALOG ? self::MODE_CATALOG : self::MODE_ORDERS;
+    }
+
+    /** هل يعرض المشروع نظام طلبات كاملًا (سلة، إتمام، متابعة)؟ */
+    public static function hasOrdering(): bool
+    {
+        return self::mode() === self::MODE_ORDERS;
+    }
+
+    /** معرّف نوع النشاط المختار (restaurant, store, showroom, ...). */
+    public static function presetId(): string
+    {
+        $id = (string) self::ov('preset_id', '');
+        return $id !== '' ? $id : (string) self::BUSINESS_TYPE;
+    }
+
+    /** التسمية العربية لنوع النشاط المختار. */
+    public static function presetLabel(): string
+    {
+        return (string) self::ov('preset_label', (string) self::BUSINESS_TYPE);
+    }
+
+    /* =====================================================================
+     * ب. التسميات — تتبع نوع النشاط المختار
+     * ===================================================================== */
+
+    /** تسمية النشاط المفردة ("مطعم"، "متجر"، "العيادة"). */
+    public static function businessLabel(): string
+    {
+        return (string) self::ov('business_label', 'نشاط');
+    }
+
+    /** تسمية المنتج المفرد ("صنف" / "منتج" / "مركبة" / "خدمة"). */
+    public static function productSingular(): string
+    {
+        return (string) self::ov('product_singular', 'صنف');
+    }
+
+    /** تسمية المنتج بالجمع ("الأصناف" / "المنتجات" / "المركبات"). */
+    public static function productPlural(): string
+    {
+        return (string) self::ov('product_plural', 'المنتجات');
+    }
+
+    /** عنوان صفحة المنتجات ("القائمة" / "المنتجات" / "المعرض"). */
+    public static function catalogTitle(): string
+    {
+        return (string) self::ov('catalog_title', 'المنتجات');
+    }
+
+    public static function catalogCta(): string
+    {
+        return (string) self::ov('catalog_cta', 'تصفّح المنتجات');
+    }
+
+    public static function orderCta(): string
+    {
+        return (string) self::ov('order_cta', 'اطلب الآن');
+    }
+
+    public static function homeHeroTitle(): string
+    {
+        return (string) self::ov('home_hero_title', (string) self::DEFAULT_APP_TAGLINE);
+    }
+
+    /* =====================================================================
+     * ج. الهوية والعرض
      * ===================================================================== */
 
     /** اسم النشاط كما يظهر افتراضيًا (يمكن تغييره من لوحة الإدارة). */
@@ -79,7 +206,7 @@ final class ProjectConfig
     public const CATALOG_PAGE_SIZE = 200;
 
     /* =====================================================================
-     * ب. نوع النشاط والمواقع
+     * د. نوع النشاط والمواقع
      * ===================================================================== */
 
     /** restaurant | cafe | store | car_dealer | mall */
@@ -97,6 +224,52 @@ final class ProjectConfig
 
     /** هل يمكن للزبون تبديل الموقع بنفسه أم يُثبَّت من QR فقط؟ */
     public const LOCATION_LOCKED_BY_QR = false;
+
+    /* ------------------------- الوصول للتغطية ------------------------- */
+
+    public static function locationSingular(): string
+    {
+        return (string) self::ov('location_singular', self::LOCATION_SINGULAR);
+    }
+
+    public static function locationPlural(): string
+    {
+        return (string) self::ov('location_plural', self::LOCATION_PLURAL);
+    }
+
+    public static function locationRequired(): bool
+    {
+        return (bool) self::ov('location_required', self::LOCATION_REQUIRED);
+    }
+
+    public static function locationSource(): string
+    {
+        return (string) self::ov('location_source', self::LOCATION_SOURCE);
+    }
+
+    /** هل نظام المواقع مفعّل لهذا المشروع؟ */
+    public static function locationsEnabled(): bool
+    {
+        return (bool) self::feature('locations', true) && self::locationSource() !== 'disabled';
+    }
+
+    /** بادئة رموز المواقع — تحدّدها نوع النشاط المختار. */
+    public static function locationCodePrefix(): string
+    {
+        $explicit = (string) self::ov('location_code', '');
+        if ($explicit !== '') {
+            return match ($explicit) {
+                'restaurant' => 'T', // T = Table
+                'showroom'   => 'C', // C = Car / showroom
+                default      => 'L', // L = Location
+            };
+        }
+        return match (self::BUSINESS_TYPE) {
+            'car_dealer'    => 'C',
+            'store', 'mall' => 'L',
+            default         => 'T',
+        };
+    }
 
     /* =====================================================================
      * ج. حقول المنتجات
@@ -305,6 +478,17 @@ final class ProjectConfig
         'auto_refresh'     => true,  // تحديث دوري للطلبات الجديدة
     ];
 
+    /**
+     * وظائف لا معنى لها في وضع العرض فقط، فتُغلق تلقائيًا عند اختياره.
+     * هذا يضمن أن "عرض فقط" لا يترك أزرار طلبات معلّقة في أي مكان.
+     */
+    public const ORDER_ONLY_FEATURES = [
+        'order_types',
+        'order_tracking',
+        'qr_orders',
+        'auto_refresh',
+    ];
+
     /** مدة صلاحية رمز متابعة الطلب (بالدقائق). */
     public const ORDER_TOKEN_TTL_MINUTES = 60 * 24 * 14;
 
@@ -369,22 +553,42 @@ final class ProjectConfig
     }
 
     /* =====================================================================
-     * أدوات مساعدة للإعدادات
+     * أدوات مساعدة للإعدادات — كل واحدة تقرأ عبر طبقة التغطية
      * ===================================================================== */
 
-    /** @return array<int, array<string, mixed>> الحقول مرتبة */
+    /** @return array<int, array<string, mixed>> حقول المنتج الإضافية مرتبة */
     public static function productExtraFields(): array
     {
-        $fields = self::PRODUCT_EXTRA_FIELDS;
+        $fields = (array) self::ov('product_extra_fields', self::PRODUCT_EXTRA_FIELDS);
         usort($fields, static fn(array $a, array $b): int => ($a['sort'] ?? 100) <=> ($b['sort'] ?? 100));
         return $fields;
+    }
+
+    /** @return array<int, array<string, mixed>> حقول صفحة التفاصيل */
+    public static function productDetailFields(): array
+    {
+        return (array) self::ov('product_detail_fields', self::PRODUCT_DETAIL_FIELDS);
+    }
+
+    /** @return array<string, mixed> قواعد فتح صفحة التفاصيل */
+    public static function productDetailRules(): array
+    {
+        return (array) self::ov('product_detail_rules', self::PRODUCT_DETAIL_RULES);
+    }
+
+    /** @return array<string, array<string, mixed>> أنواع الطلب الفعلية */
+    public static function orderTypes(): array
+    {
+        $types = (array) self::ov('order_types', self::ORDER_TYPES);
+        // وضع العرض_only لا يُعرَض له أنواع طلبات مهما كانت الثوابت
+        return self::hasOrdering() ? $types : [];
     }
 
     /** @return array<int, array<string, mixed>> */
     public static function orderTypeList(): array
     {
         $list = [];
-        foreach (self::ORDER_TYPES as $key => $def) {
+        foreach (self::orderTypes() as $key => $def) {
             $list[] = ['key' => $key] + $def;
         }
         return $list;
@@ -392,31 +596,56 @@ final class ProjectConfig
 
     public static function orderType(string $key): ?array
     {
-        return self::ORDER_TYPES[$key] ?? null;
+        $types = self::orderTypes();
+        return $types[$key] ?? null;
     }
 
     /** الحقول الفعلية (المدمجة من الأنواع) مرتبة حسب sort */
     public static function orderFieldsFor(string $type): array
     {
-        $def  = self::ORDER_TYPES[$type] ?? [];
+        $def  = self::orderTypes()[$type] ?? [];
         $flds = $def['fields'] ?? [];
         usort($flds, static fn(array $a, array $b): int => ($a['sort'] ?? 100) <=> ($b['sort'] ?? 100));
         return $flds;
     }
 
+    /**
+     * هل الوظيفة مفعّلة؟
+     * في وضع العرض فقط تُغلق كل وظائف الطلبات مهما كانت الثوابت.
+     */
     public static function feature(string $name, bool $default = false): bool
     {
+        $overrides = (array) self::ov('feature_overrides', []);
+        if (array_key_exists($name, $overrides)) {
+            return (bool) $overrides[$name];
+        }
+        if (!self::hasOrdering() && in_array($name, self::ORDER_ONLY_FEATURES, true)) {
+            return false;
+        }
         return self::FEATURES[$name] ?? $default;
+    }
+
+    /** @return array<string, bool> كل الوظائف بعد تطبيق التغطية */
+    public static function features(): array
+    {
+        $out = [];
+        foreach (array_keys(self::FEATURES) as $name) {
+            $out[$name] = self::feature($name);
+        }
+        foreach ((array) self::ov('feature_overrides', []) as $name => $value) {
+            $out[$name] = (bool) $value;
+        }
+        return $out;
     }
 
     /** هل نوع الطلب هذا يفرض وجود موقع؟ */
     public static function typeRequiresLocation(string $type): bool
     {
-        $def = self::ORDER_TYPES[$type] ?? null;
+        $def = self::orderTypes()[$type] ?? null;
         if ($def === null) {
-            return self::LOCATION_REQUIRED;
+            return self::locationRequired();
         }
-        return (bool) ($def['requires_location'] ?? self::LOCATION_REQUIRED);
+        return (bool) ($def['requires_location'] ?? self::locationRequired());
     }
 
     /** الإعدادات التي تُزرع في جدول settings عند أول تهيئة. */
@@ -434,6 +663,7 @@ final class ProjectConfig
             'show_contact'        => '1',
             'show_prices'         => '1',
             'low_stock_note'      => '',
+            'business_preset'     => '',   // يُملأ في صفحة التهيئة
         ];
     }
 }

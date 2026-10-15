@@ -70,7 +70,7 @@ final class QrService
             $title = htmlspecialchars($location['name'], ENT_QUOTES, 'UTF-8');
             $code  = htmlspecialchars($location['code'], ENT_QUOTES, 'UTF-8');
             $app   = htmlspecialchars($settings['app_name'] ?? '', ENT_QUOTES, 'UTF-8');
-            $sing  = htmlspecialchars(ProjectConfig::LOCATION_SINGULAR, ENT_QUOTES, 'UTF-8');
+            $sing  = htmlspecialchars(ProjectConfig::locationSingular(), ENT_QUOTES, 'UTF-8');
             $items .= <<<HTML
                 <div class="qr-card">
                   <div class="qr-code">{$svg}</div>

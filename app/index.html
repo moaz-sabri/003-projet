@@ -16,9 +16,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="القائمة">
 
-  <link rel="stylesheet" href="css/app.css?v=1.2.0">
+  <link rel="stylesheet" href="css/app.css?v=1.3.0">
 </head>
-<body>
+<body data-mode="orders">
 
 <a class="skip-link" href="#content">تخطَّ إلى المحتوى</a>
 
@@ -27,9 +27,15 @@
   <span class="banner-icon" aria-hidden="true">
     <svg viewBox="0 0 24 24" width="15" height="15"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 8v5m0 3.5h.01M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
   </span>
-  <span class="banner-text">لا يوجد اتصال — تتصفح نسخة محفوظة من القائمة. الطلب متوقف مؤقتًا.</span>
+  <span class="banner-text">لا يوجد اتصال — تتصفح نسخة محفوظة من المنتجات. الطلب متوقف مؤقتًا.</span>
 </div>
 
+<!-- ===================================================================
+     الرأس: الهوية في سطر، والتنقل في سطر تحته.
+     ملاحظة مهمة: لا يوجد بحث هنا إطلاقًا. كان البحث في الرأس يغطّي أول
+     عناصر الصفحة لأن الرأس أثبّت فوق المحتوى بارتفاع يتجاوز ما حُجز له.
+     البحث الآن جزء من شريط أدوات المنتجات داخل الصفحة نفسها.
+     =================================================================== -->
 <header class="app-header" id="app-header">
   <div class="header-inner">
     <a class="brand" id="brand-link" href="./">
@@ -47,6 +53,13 @@
         <button class="loc-clear" id="loc-clear" type="button" aria-label="تغيير الموقع">×</button>
       </span>
 
+      <a class="icon-btn" id="nav-contact-link" href="./" aria-label="تواصل معنا" title="تواصل معنا">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                d="M6.6 3.5h3l1.5 3.8-2 1.4a12 12 0 0 0 5.2 5.2l1.4-2 3.8 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.6 5.7 2 2 0 0 1 6.6 3.5Z"/>
+        </svg>
+      </a>
+
       <button class="cart-button" id="cart-button" type="button" aria-label="السلة">
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
           <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
@@ -59,33 +72,80 @@
     </div>
   </div>
 
-  <div class="header-nav" id="header-nav" hidden>
-    <div class="search-wrap" id="search-wrap">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-        <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
-        <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-      <input type="search" id="search-input" placeholder="ابحث في القائمة…" autocomplete="off" enterkeyhint="search" aria-label="ابحث في القائمة">
-      <button class="search-clear" id="search-clear" type="button" aria-label="مسح البحث" hidden>×</button>
-    </div>
-    <nav class="tabs" id="category-tabs" aria-label="التصنيفات" role="tablist"></nav>
-  </div>
+  <nav class="main-nav" id="main-nav" aria-label="التنقل الرئيسي">
+    <a class="nav-link" id="nav-home" data-nav="home" href="#">الرئيسية</a>
+    <a class="nav-link" id="nav-products" data-nav="products" href="#">المنتجات</a>
+    <a class="nav-link" id="nav-contact" data-nav="contact" href="#">تواصل معنا</a>
+  </nav>
 </header>
 
 <main class="content" id="content" tabindex="-1">
 
-  <!-- شاشة الترحيب -->
-  <section class="welcome" id="view-welcome" hidden>
-    <div class="welcome-card">
-      <div class="welcome-emoji" aria-hidden="true">👋</div>
-      <h2 class="welcome-title" id="welcome-title">أهلًا بك</h2>
-      <p class="welcome-text" id="welcome-text"></p>
-      <button class="btn btn-primary btn-lg" id="welcome-action" type="button">تصفح القائمة</button>
+  <!-- =================================================================
+       الصفحة الرئيسية: غلاف الشركة ومعلوماتها، قبل المنتجات
+       تُبنى بالكامل من app/data/company.json
+       ================================================================= -->
+  <section class="view" id="view-home">
+
+    <div class="hero" id="hero">
+      <div class="hero-media" id="hero-media" hidden>
+        <img id="hero-image" alt="">
+      </div>
+      <div class="hero-body">
+        <p class="hero-eyebrow" id="hero-eyebrow" hidden></p>
+        <h1 class="hero-title" id="hero-title"></h1>
+        <p class="hero-text" id="hero-text" hidden></p>
+        <div class="hero-actions">
+          <a class="btn btn-primary btn-lg" id="hero-cta" href="#">تصفح المنتجات</a>
+          <a class="btn btn-ghost btn-lg" id="hero-cta-2" href="#" hidden></a>
+        </div>
+        <dl class="hero-facts" id="hero-facts" hidden></dl>
+      </div>
+    </div>
+
+    <div class="notice notice-soft" id="welcome-notice" hidden></div>
+
+    <div class="highlights" id="highlights" hidden></div>
+
+    <div class="sections" id="home-sections"></div>
+
+    <div class="gallery" id="gallery" hidden></div>
+
+    <div class="cta-band" id="cta-band" hidden>
+      <div class="cta-body">
+        <h2 class="cta-title" id="cta-title"></h2>
+        <p class="cta-text" id="cta-text" hidden></p>
+      </div>
+      <a class="btn btn-primary btn-lg" id="cta-button" href="#"></a>
+    </div>
+
+    <div class="contact-glance" id="contact-glance" hidden>
+      <h2 class="section-heading">تواصل سريع</h2>
+      <div class="glance-grid" id="glance-grid"></div>
     </div>
   </section>
 
-  <!-- شاشة المنتجات -->
-  <section class="view" id="view-menu">
+  <!-- =================================================================
+       صفحة المنتجات: شريط البحث هنا، لا في الرأس
+       ================================================================= -->
+  <section class="view" id="view-products" hidden>
+    <div class="catalog-head">
+      <h2 class="view-title" id="catalog-title">المنتجات</h2>
+      <p class="catalog-sub" id="catalog-sub" hidden></p>
+    </div>
+
+    <div class="catalog-toolbar" id="catalog-toolbar">
+      <div class="search-wrap" id="search-wrap">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <input type="search" id="search-input" placeholder="ابحث…" autocomplete="off" enterkeyhint="search" aria-label="ابحث في المنتجات">
+        <button class="search-clear" id="search-clear" type="button" aria-label="مسح البحث" hidden>×</button>
+      </div>
+      <nav class="tabs" id="category-tabs" aria-label="التصنيفات" role="tablist"></nav>
+    </div>
+
     <div class="notice" id="menu-notice" hidden></div>
     <div class="skeleton-grid" id="menu-skeleton" aria-hidden="true"></div>
     <div class="product-grid" id="product-grid"></div>
@@ -93,6 +153,37 @@
       <div class="empty-emoji" aria-hidden="true">🍽️</div>
       <p class="empty-title" id="menu-empty-title">لا توجد منتجات</p>
       <p class="empty-text" id="menu-empty-text"></p>
+    </div>
+  </section>
+
+  <!-- =================================================================
+       صفحة التواصل: تفاصيل الاتصال من نفس ملف company.json
+       ================================================================= -->
+  <section class="view" id="view-contact" hidden>
+    <div class="catalog-head">
+      <h2 class="view-title">تواصل معنا</h2>
+      <p class="catalog-sub" id="contact-intro"></p>
+    </div>
+
+    <div class="contact-grid" id="contact-grid"></div>
+
+    <div class="contact-panel" id="contact-hours" hidden>
+      <h3 class="panel-title">أوقات العمل</h3>
+      <dl class="hours-list" id="hours-list"></dl>
+    </div>
+
+    <div class="contact-panel" id="contact-address" hidden>
+      <h3 class="panel-title">العنوان</h3>
+      <p class="address-text" id="address-text"></p>
+      <a class="btn btn-ghost" id="map-link" href="#" target="_blank" rel="noopener noreferrer" hidden>
+        فتح على الخريطة
+      </a>
+    </div>
+
+    <div class="empty-state" id="contact-empty" hidden>
+      <div class="empty-emoji" aria-hidden="true">📭</div>
+      <p class="empty-title">لا توجد بيانات تواصل بعد</p>
+      <p class="empty-text">أضف وسائل التواصل في <code>app/data/company.json</code> أو من إعدادات العرض.</p>
     </div>
   </section>
 
@@ -106,8 +197,8 @@
     <div class="empty-state" id="cart-empty" hidden>
       <div class="empty-emoji" aria-hidden="true">🧺</div>
       <p class="empty-title">سلتك فارغة</p>
-      <p class="empty-text">أضف ما يعجبك من القائمة وسيمكنك إتمام الطلب فورًا.</p>
-      <button class="btn btn-primary" id="cart-empty-action" type="button">تصفح القائمة</button>
+      <p class="empty-text">أضف ما يعجبك من المنتجات وسيمكنك إتمام الطلب فورًا.</p>
+      <button class="btn btn-primary" id="cart-empty-action" type="button">تصفح المنتجات</button>
     </div>
     <div class="cart-summary" id="cart-summary" hidden>
       <div class="summary-row"><span>المجموع الفرعي</span><span id="cart-subtotal">0</span></div>
@@ -229,15 +320,17 @@
 
 <footer class="app-footer" id="app-footer" hidden>
   <span id="footer-contact"></span>
+  <span id="footer-note" class="footer-note"></span>
+  <span id="footer-links" class="footer-links"></span>
 </footer>
 
 <noscript>
-  <div class="noscript">هذه القائمة تحتاج تفعيل JavaScript في المتصفح لعرض المنتجات وإرسال الطلب.</div>
+  <div class="noscript">هذا الموقع يحتاج تفعيل JavaScript في المتصفح لعرض المنتجات والمعلومات.</div>
 </noscript>
 
-<script src="js/api.js?v=1.2.0"></script>
-<script src="js/store.js?v=1.2.0"></script>
-<script src="js/ui.js?v=1.2.0"></script>
-<script src="js/app.js?v=1.2.0"></script>
+<script src="js/api.js?v=1.3.0"></script>
+<script src="js/store.js?v=1.3.0"></script>
+<script src="js/ui.js?v=1.3.0"></script>
+<script src="js/app.js?v=1.3.0"></script>
 </body>
 </html>

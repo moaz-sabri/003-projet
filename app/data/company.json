@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+
+  "brand": {
+    "name": "",
+    "tagline": "",
+    "logo": "",
+    "hero_image": "",
+    "cover_image": ""
+  },
+
+  "about": {
+    "summary": "",
+    "story": "",
+    "highlights": [
+      { "icon": "check", "title": "", "text": "" },
+      { "icon": "star", "title": "", "text": "" },
+      { "icon": "heart", "title": "", "text": "" }
+    ],
+    "gallery": []
+  },
+
+  "contact": {
+    "phone": "",
+    "whatsapp": "",
+    "email": "",
+    "instagram": "",
+    "facebook": "",
+    "telegram": "",
+    "tiktok": "",
+    "youtube": "",
+    "address": "",
+    "map_url": "",
+    "working_hours": [
+      { "day": "", "open": "", "close": "" }
+    ]
+  },
+
+  "sections": [
+    {
+      "icon": "award",
+      "title": "",
+      "body": "",
+      "bullets": []
+    }
+  ],
+
+  "cta": {
+    "title": "",
+    "text": "",
+    "button_label": "",
+    "button_url": ""
+  },
+
+  "seo": {
+    "title": "",
+    "description": "",
+    "keywords": ""
+  },
+
+  "footer": {
+    "note": "",
+    "links": []
+  }
+}

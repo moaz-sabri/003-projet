@@ -20,9 +20,15 @@ $path = '/' . ltrim(rawurldecode($path), '/');
 $query = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_QUERY) ?? '';
 
 /* --------------------------- مسارات ممنوعة --------------------------- */
-$blockedPrefixes = ['/src/', '/storage/', '/bin/', '/tests/', '/tools/', '/docs/', '/docker/', '/setup/', '/vendor/'];
+/*
+ * setup/ ليست محجوبة هنا عن قصد: صفحة التهيئة تعمل مرة واحدة ثم ترفض العمل،
+ * وملف .htaccess لا يحجبها أيضًا. كانت محجوبة في هذا الراوتر فصار التثبيت
+ * المحلي عبر /setup/ مستحيلًا، أي أن أداة التطوير لم تطابق الإنتاج في أهم
+ * خطوة على الإطلاق. الحماية الحقيقية بعد التهيئة: احذف مجلد setup/.
+ */
+$blockedPrefixes = ['/src/', '/storage/', '/bin/', '/tests/', '/tools/', '/docs/', '/docker/', '/vendor/'];
 $blockedExact    = [
-    '/src', '/storage', '/bin', '/tests', '/tools', '/docs', '/docker', '/setup', '/vendor',
+    '/src', '/storage', '/bin', '/tests', '/tools', '/docs', '/docker', '/vendor',
     '/.htaccess', '/.env', '/.git', '/composer.json', '/composer.lock', '/Dockerfile',
     '/README.md', '/CHANGELOG.md', '/AUDIT_REPORT.md',
 ];

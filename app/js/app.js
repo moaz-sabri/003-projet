@@ -17,16 +17,31 @@
 
   var ROUTER_KEY = 'lc_router_mode';
 
-  /* الشاشات المتاحة في الواجهة */
-  var VIEWS = ['menu', 'cart', 'checkout', 'success', 'track'];
+  /*
+   * الشاشات المتاحة في الواجهة.
+   *
+   * home     صفحة الشركة (الغلاف) — الجذر
+   * products صفحة المنتجات والبحث
+   * contact  صفحة التواصل
+   * cart / checkout / success / track  شاشات الطلبات (وضع الطلبات فقط)
+   */
+  var VIEWS = ['home', 'products', 'contact', 'cart', 'checkout', 'success', 'track'];
+
+  /** شاشات لا معنى لها في وضع العرض فقط */
+  var ORDER_VIEWS = ['cart', 'checkout', 'success', 'track'];
 
   var VIEW_TITLES = {
-    menu: 'القائمة', cart: 'السلة', checkout: 'إتمام الطلب',
-    success: 'تم استلام طلبك', track: 'متابعة الطلب'
+    home: null,
+    products: 'المنتجات',
+    contact: 'تواصل معنا',
+    cart: 'السلة',
+    checkout: 'إتمام الطلب',
+    success: 'تم استلام طلبك',
+    track: 'متابعة الطلب'
   };
 
   var state = {
-    view: 'menu',
+    view: 'home',
     categoryId: '',
     search: '',
     orderType: '',
@@ -114,32 +129,42 @@
 
   function render() {
     var route = splitRoute();
+    var ordering = Store.hasOrdering();
 
     switch (route.name) {
       case '':
+      case 'home':
+        return show('home');
+
+      case 'products':
       case 'menu':
-        return show('menu');
+      case 'catalog':
+        return show('products');
 
+      case 'contact':
+      case 'about':
+        return show('contact');
+
+      /* شاشات الطلبات: موجودة فقط في وضع الطلبات */
       case 'cart':
-        return show('cart');
-
       case 'checkout':
-        return show('checkout');
-
       case 'success':
-        return show('success');
-
       case 'order':
       case 'track':
-        if (route.arg) {
-          state.trackingToken = route.arg;
-          return show('track');
+        if (!ordering) return noOrdering();
+        if (route.name === 'order' || route.name === 'track') {
+          if (route.arg) {
+            state.trackingToken = route.arg;
+            return show('track');
+          }
+          return unknownRoute();
         }
-        return unknownRoute();
+        return show(route.name);
 
       case 'product':
         if (route.arg) {
-          show('menu');
+          // يُفتح فوق صفحة المنتجات دائمًا (أو الجذر إن لم تُحمّل بعد)
+          show(Store.snapshot ? 'products' : 'products');
           openProductDetails(parseInt(route.arg, 10));
           return;
         }
@@ -150,9 +175,15 @@
     }
   }
 
+  /** رسالة واضحة بدل صفحة صامتة عند فتح رابط طلب في موقع للعرض فقط. */
+  function noOrdering() {
+    Router.go('', true);
+    UI.toast('هذا الموقع للعرض فقط ولا يستقبل طلبات. تواصل معنا وسنخدمك مباشرة.', 'warn');
+  }
+
   function unknownRoute() {
     Router.go('', true);
-    UI.toast('الصفحة التي تبحث عنها غير موجودة. أعدنا بك إلى القائمة.', 'warn');
+    UI.toast('الصفحة التي تبحث عنها غير موجودة. أعدنا بك إلى الصفحة الرئيسية.', 'warn');
   }
 
   function show(name) {
@@ -163,8 +194,13 @@
       var el = $('view-' + view);
       if (el) el.hidden = (view !== name);
     });
-    $('view-welcome').hidden = true;
-    $('header-nav').hidden = (name !== 'menu');
+
+    // شريط أدوات البحث والتصنيفات يظهر مع صفحة المنتجات فقط
+    var toolbar = $('catalog-toolbar');
+    if (toolbar) toolbar.hidden = (name !== 'products');
+
+    syncNav(name);
+    applyMode();
 
     if (changed) {
       window.scrollTo(0, 0);
@@ -174,18 +210,58 @@
       UI.renderCart();
     }
 
-    if (name === 'menu') renderMenu();
+    if (name === 'home') UI.renderHome();
+    if (name === 'contact') UI.renderContact();
+    if (name === 'products') renderMenu();
     if (name === 'cart') UI.renderCart();
     if (name === 'checkout') prepareCheckout();
     if (name === 'success') restoreLastSuccess();
     if (name === 'track') loadTracking();
   }
 
+  /** يميّز رابط الصفحة الحالية في شريط التنقل. */
+  function syncNav(view) {
+    document.querySelectorAll('.nav-link').forEach(function (link) {
+      var active = link.getAttribute('data-nav') === view;
+      link.classList.toggle('is-active', active);
+      if (active) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+  }
+
+  /**
+   * يطبّق وضع المشروع على عناصر الصفحة.
+   * وضع العرض_only = إخفاء كل أثر للطلبات: لا سلة ولا زر عائم ولا شاشات.
+   */
+  function applyMode() {
+    var ordering = Store.hasOrdering();
+    document.body.setAttribute('data-mode', ordering ? 'orders' : 'catalog');
+
+    // زر السلة يبقى ظاهرًا في وضع الطلبات حتى مع سلة فارغة:
+    // هو المدخل الوحيد إلى شاشة السلة، وإخفاؤه يجعل الطلب يبدو غير موجود.
+    UI.setHidden($('cart-button'), !ordering);
+
+    // شارة اسم صفحة المنتجات تتبع نوع النشاط
+    var title = $('catalog-title');
+    if (title) title.textContent = Store.catalogTitle();
+    var sub = $('catalog-sub');
+    if (sub) {
+      var count = (Store.snapshot && Store.snapshot.products || []).length;
+      sub.textContent = count ? count + ' ' + Store.productPlural() : '';
+      sub.hidden = !count;
+    }
+  }
+
   /** عنوان الصفحة يوضّح أين نحن — مهم عند فتح الرابط في تبويب جديد. */
   function applyViewTitle() {
-    var app = (Store.settings && Store.settings.app_name) || 'القائمة';
-    var title = VIEW_TITLES[state.view] || '';
-    document.title = state.view === 'menu' ? app : title + ' · ' + app;
+    var company = Store.company || {};
+    var app = (company.brand && company.brand.name) || (Store.settings && Store.settings.app_name) || '';
+    var title = VIEW_TITLES[state.view];
+    if (title === null || title === undefined) {
+      document.title = app;
+    } else {
+      document.title = title + ' · ' + app;
+    }
   }
 
   /* ============================== التحميل ============================== */
@@ -236,12 +312,14 @@
     UI.renderSearch(Store.settings.show_search !== false);
     UI.hideSkeleton();
     applyViewTitle();
-    renderMenu();
+    applyMode();
+    if (state.view === 'home') UI.renderHome();
+    if (state.view === 'contact') UI.renderContact();
+    if (state.view === 'products') renderMenu();
   }
 
   function renderMenu() {
     if (!Store.snapshot) return;
-    var features = (Store.config && Store.config.features) || {};
 
     UI.renderTabs(Store.snapshot.categories || [], state.categoryId);
     UI.renderLocationChip(Store.location, Store.config || {});
@@ -253,6 +331,7 @@
 
     UI.renderProducts(products, { search: state.search });
     UI.renderCart();
+    applyMode();
   }
 
   /* =============================== الموقع =============================== */
@@ -270,6 +349,9 @@
       Store.setLocation(match);
       state.location = match;
       cleanQuery(['loc']);
+      if (state.view === 'products') renderMenu();
+      UI.toast('تم تحديد ' + (Store.config.location_singular || 'الموقع') + ': ' +
+        match.name, 'success');
       return true;
     }
 
@@ -309,8 +391,14 @@
     }
 
     UI.renderProductSheet(local, Store.config || {});
+
+    /*
+     * تذييل الورقة فيه زر "أضف إلى السلة"، فيُخفى في حالتين: منتج غير متاح،
+     * أو مشروع في وضع العرض_only. الشرط الثاني هو المهم: لا يجوز أن يظهر
+     * زر إضافة في مشروع لا نظام طلبات فيه إطلاقًا.
+     */
     var footer = $('sheet-footer');
-    footer.hidden = local.available === false;
+    footer.hidden = !Store.hasOrdering() || local.available === false;
     footer.setAttribute('data-product-id', String(id));
     $('product-sheet').hidden = false;
     $('sheet-backdrop').hidden = false;
@@ -542,7 +630,7 @@
     $('cart-fab').addEventListener('click', function () { Router.go('cart'); });
     $('to-checkout').addEventListener('click', function () { Router.go('checkout'); });
     $('checkout-back').addEventListener('click', function () { Router.go('cart'); });
-    $('cart-empty-action').addEventListener('click', function () { Router.go(''); });
+    $('cart-empty-action').addEventListener('click', function () { Router.go('products'); });
     $('brand-link').addEventListener('click', function (event) {
       event.preventDefault();
       Router.go('');
@@ -550,19 +638,39 @@
     $('success-new-order').addEventListener('click', function () {
       Store.clearLastOrder();
       UI.toast('يمكنك طلب جديد في أي وقت.', 'info');
-      Router.go('');
+      Router.go('products');
     });
     $('track-refresh').addEventListener('click', loadTracking);
+
+    /*
+     * روابط التنقل والزر الأساسي (data-go).
+     * كل الروابط تُعطَّل ونستدعي الموجّه، فيبقى تنقّل حقيقي مع زر الرجوع.
+     * الروابط ذات target="_blank" (رابط خارجي من company.json) تُترك للمتصفح.
+     */
+    document.addEventListener('click', function (event) {
+      var link = event.target.closest('[data-go]');
+      if (!link) return;
+      if (link.getAttribute('target') === '_blank') return;
+      event.preventDefault();
+      Router.go(link.getAttribute('data-go') || '');
+    });
+
+    $('main-nav').addEventListener('click', function (event) {
+      var link = event.target.closest('.nav-link');
+      if (!link) return;
+      event.preventDefault();
+      Router.go(link.getAttribute('data-nav') || '');
+    });
+
+    $('nav-contact-link').addEventListener('click', function (event) {
+      event.preventDefault();
+      Router.go('contact');
+    });
 
     $('loc-clear').addEventListener('click', function () {
       Store.clearLocation();
       UI.toast('تم مسح الموقع. اختر موقعًا جديدًا عند الطلب.', 'info');
-      renderMenu();
-    });
-
-    $('welcome-action').addEventListener('click', function () {
-      try { localStorage.setItem('lc_welcome_seen', '1'); } catch (e) { /* تجاهل */ }
-      Router.go('');
+      if (state.view === 'products') renderMenu();
     });
 
     // التصنيفات
@@ -756,41 +864,30 @@
     state.location = Store.location;
 
     $('brand-link').setAttribute('href', HOME);
+
+    // روابط التنقل تصبح حقيقية (قابلة للفتح في تبويب جديد ونسخها)
+    [['nav-home', ''], ['nav-products', 'products'], ['nav-contact', 'contact']].forEach(function (pair) {
+      var el = $(pair[0]);
+      if (el) el.setAttribute('href', BASE + pair[1]);
+    });
+    $('nav-contact-link').setAttribute('href', BASE + 'contact');
+
     bindEvents();
 
     // احترام الرابط المباشر عند الفتح (رابط QR أو صفحة مشاركة)
     render();
 
     // هيكل تحميل مؤقت حتى وصول الكتالوج
-    if (state.view === 'menu' && !Store.snapshot) UI.renderSkeleton(6);
+    if (state.view === 'products' && !Store.snapshot) UI.renderSkeleton(6);
 
     loadCatalog().then(function () {
-      if (applyLocationFromUrl()) {
-        state.location = Store.location;
-        UI.toast('تم تحديد ' + (Store.config.location_singular || 'الموقع') + ': ' +
-          Store.location.name, 'success');
-      }
+      applyLocationFromUrl();
 
       // رمز متابعة طلب قادم من QR قديم (?t=) أو من رابط طلب جديد
       var token = new URLSearchParams(location.search).get('t');
-      if (token) {
+      if (token && Store.hasOrdering()) {
         cleanQuery(['t']);
         Router.go('order/' + encodeURIComponent(token), true);
-        return;
-      }
-
-      // صفحة الترحيب: تظهر مرة واحدة فقط وعند الدخول من الجذر
-      var welcome = $('view-welcome');
-      var dismissed = false;
-      try { dismissed = localStorage.getItem('lc_welcome_seen') === '1'; } catch (e) { dismissed = false; }
-      var isRootRoute = !Router.route();
-
-      if (isRootRoute && !dismissed && Store.settings.show_welcome && Store.settings.welcome_message) {
-        $('welcome-title').textContent = 'أهلًا بك في ' + (Store.settings.app_name || 'القائمة');
-        $('welcome-text').textContent = Store.settings.welcome_message;
-        welcome.hidden = false;
-        VIEWS.forEach(function (v) { $('view-' + v).hidden = true; });
-        state.view = 'welcome';
       }
     });
 

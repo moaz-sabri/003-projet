@@ -11,6 +11,7 @@ use App\Core\Http\HttpError;
 use App\Core\Http\Request;
 use App\Core\Http\Response;
 use App\Core\Http\Validator;
+use App\Core\CompanyProfile;
 use App\Core\Money;
 use App\Core\RuntimeSettings;
 use App\Core\Security\Auth;
@@ -73,7 +74,7 @@ $router->post('admin.login', function (Request $request) use ($body): void {
         'data' => [
             'username'  => Auth::username(),
             'csrf'      => Auth::token(),
-            'locations' => ProjectConfig::LOCATION_PLURAL,
+            'locations' => ProjectConfig::locationPlural(),
         ],
     ], 200, ['Cache-Control' => 'no-store']);
 });
@@ -211,9 +212,15 @@ $router->post('admin.categories.reorder', function (Request $request) use ($body
 $router->get('admin.products', function (Request $request) use ($requireAuth): void {
     $requireAuth($request);
     Response::ok([
-        'products'   => (new ProductRepository())->allAdmin(),
-        'categories' => (new CategoryRepository())->all(),
-        'fields'     => ProjectConfig::productExtraFields(),
+        'products'      => (new ProductRepository())->allAdmin(),
+        'categories'    => (new CategoryRepository())->all(),
+        'fields'        => ProjectConfig::productExtraFields(),
+        'detail_fields' => ProjectConfig::productDetailFields(),
+        'labels'        => [
+            'singular'  => ProjectConfig::productSingular(),
+            'plural'    => ProjectConfig::productPlural(),
+            'catalog'   => ProjectConfig::catalogTitle(),
+        ],
     ]);
 });
 
@@ -265,7 +272,7 @@ $validateProduct = static function (array $data): array {
     }
     // حقول التفاصيل تُحفظ ضمن نفس البنية
     if (isset($data['details']) && is_array($data['details'])) {
-        foreach (ProjectConfig::PRODUCT_DETAIL_FIELDS as $field) {
+        foreach (ProjectConfig::productDetailFields() as $field) {
             $key = $field['key'];
             $val = (string) ($data['details'][$key] ?? '');
             $extra[$key] = mb_substr(trim($val), 0, 1200);
@@ -489,6 +496,13 @@ $router->get('admin.settings', function (Request $request) use ($requireAuth): v
         'settings'    => RuntimeSettings::adminPayload(),
         'config'      => $service->configPayload(),
         'base_url'    => app_config('app.base_url', ''),
+        'company'     => [
+            'path'      => 'app/data/company.json',
+            'readme'    => 'app/data/README.md',
+            'exists'    => CompanyProfile::exists(),
+            'sections'  => CompanyProfile::sectionCount(),
+            'has_contact' => CompanyProfile::hasContactWays(),
+        ],
     ]);
 });
 

@@ -176,7 +176,7 @@ final class OrderRepository
             'number'        => (int) $row['number'],
             'served_on'     => (string) $row['served_on'],
             'order_type'    => (string) $row['order_type'],
-            'order_type_label' => ProjectConfig::ORDER_TYPES[$row['order_type']]['label'] ?? $row['order_type'],
+            'order_type_label' => ProjectConfig::orderType((string) $row['order_type'])['label'] ?? $row['order_type'],
             'customer_name' => (string) $row['customer_name'],
             'customer_phone' => (string) $row['customer_phone'],
             'location_id'   => $row['location_id'] !== null ? (int) $row['location_id'] : null,

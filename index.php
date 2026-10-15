@@ -10,14 +10,17 @@ declare(strict_types=1);
  *   رموز QR المطبوعة وفي شريط العنوان وعند مشاركة الروابط. الآن الجذر "/"
  *   هو الصفحة الواحدة لكل الواجهة، وهذا الملف هو ما يقدّمها:
  *
- *     /                  القائمة
+ *     /                  صفحة الشركة (الغلاف)
+ *     /products          المنتجات والبحث
+ *     /contact           التواصل ومعلومات الشركة
  *     /cart              السلة
  *     /checkout          إتمام الطلب
  *     /order/{رمز}       متابعة الطلب
- *     /product/{رقم}     القائمة مع فتح منتج
+ *     /product/{رقم}     المنتجات مع فتح منتج
  *
  * قواعد تشغيل مقصودة:
  *   - لا يلمس قاعدة البيانات إطلاقًا: يعمل قبل التهيئة وبعدها بلا استثناء.
+ *     لذلك يأتي وسم SEO من app/data/company.json لا من جدول الإعدادات.
  *   - المسارات النسبية داخل app/index.html تُحوَّل إلى مسارات مطلقة تحسبًا من
  *     موضع السكربت، ليعمل القالب على جذر النطاق أو داخل مجلد فرعي (/shop/).
  *   - أي مسار يبدو كملف (له امتداد) يُردّ عليه 404 بدل إرجاع صفحة HTML، حتى لا
@@ -29,6 +32,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/src/Core/Autoloader.php';
 
 use App\Config\ProjectConfig;
+use App\Core\CompanyProfile;
 use App\Core\Web\Paths;
 
 /* ------------------------------------------------------------------ */
@@ -78,8 +82,8 @@ $notFound = static function (string $base): void {
   <div class="box">
     <div class="code">404</div>
     <h1>الصفحة غير موجودة</h1>
-    <p>الرابط الذي فتحته غير صحيح أو تم نقله.<br>ارجع إلى القائمة وتابع من هناك.</p>
-    <a href="{$home}">العودة إلى القائمة</a>
+    <p>الرابط الذي فتحته غير صحيح أو تم نقله.<br>ارجع إلى الصفحة الرئيسية وتابع من هناك.</p>
+    <a href="{$home}">العودة إلى الصفحة الرئيسية</a>
   </div>
 </body>
 </html>
@@ -156,6 +160,45 @@ $html = str_replace(
     'lang="ar" dir="rtl"',
     'lang="' . htmlspecialchars(ProjectConfig::LOCALE, ENT_QUOTES, 'UTF-8') . '" dir="'
         . htmlspecialchars(ProjectConfig::DIRECTION, ENT_QUOTES, 'UTF-8') . '"',
+    $html
+);
+
+/*
+ * وسوم SEO من app/data/company.json.
+ * نقرأها هنا لأن هذه الصفحة تعمل قبل التهيئة وبعدها، فلا يمكن الاعتماد على
+ * جدول الإعدادات. كل القيم تمرّ بتنظيف CompanyProfile فلا يصل HTML خام.
+ */
+$seo        = CompanyProfile::seo();
+$pageTitle  = match ($route) {
+    'contact'      => 'تواصل معنا',
+    'products'     => 'المنتجات',
+    'cart'         => 'السلة',
+    'checkout'     => 'إتمام الطلب',
+    default        => '',
+};
+$fullTitle   = $pageTitle !== '' && $seo['title'] !== ''
+    ? $pageTitle . ' · ' . $seo['title']
+    : ($seo['title'] !== '' ? $seo['title'] : 'القائمة');
+
+$metaDescription = $seo['description'] !== '' ? $seo['description'] : 'قائمة رقمية وطلبات مباشرة';
+$escapeAttr      = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+
+$html = str_replace(
+    '<title>القائمة</title>',
+    '<title>' . $escapeAttr($fullTitle) . '</title>',
+    $html
+);
+$html = str_replace(
+    '<meta name="description" content="قائمة رقمية وطلبات مباشرة">',
+    '<meta name="description" content="' . $escapeAttr(mb_substr($metaDescription, 0, 300)) . '">'
+        . ($seo['keywords'] !== ''
+            ? "\n  " . '<meta name="keywords" content="' . $escapeAttr($seo['keywords']) . '">'
+            : ''),
+    $html
+);
+$html = str_replace(
+    '<meta name="apple-mobile-web-app-title" content="القائمة">',
+    '<meta name="apple-mobile-web-app-title" content="' . $escapeAttr($seo['title'] ?: 'القائمة') . '">',
     $html
 );
 

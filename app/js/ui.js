@@ -14,6 +14,68 @@
     info:    '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 11v5.5M12 7.8h.01"/></svg>'
   };
 
+  /**
+   * أيقونات الأقسام — مضمّنة كمسارات SVG فقط.
+   * القائمة مغلقة على الخادم (CompanyProfile::ICONS)، وما لا يقابله مفتاح
+   * هنا يُرسم كنقطة بدل أن ينتج أيقونة مكسورة.
+   */
+  var P = '<path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>';
+  var ICONS = {
+    star:    P + '<path d="m12 3.8 2.5 5.1 5.7.8-4.1 4 1 5.6L12 16.6 6.9 19.3l1-5.6-4.1-4 5.7-.8Z"/>',
+    shield:  P + '<path d="M12 3.5 19 6v6c0 4-2.9 7-7 8.5-4.1-1.5-7-4.5-7-8.5V6Z"/><path d="m9 12 2 2 4-4"/>',
+    clock:   P + '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>',
+    truck:   P + '<path d="M3 7h10v8H3zM13 10h4l3 3v2h-7z"/><circle cx="7" cy="17" r="1.6"/><circle cx="17" cy="17" r="1.6"/>',
+    check:   P + '<circle cx="12" cy="12" r="8"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+    heart:   P + '<path d="M12 19s-6.5-4.2-6.5-8.3A3.7 3.7 0 0 1 12 8.4a3.7 3.7 0 0 1 6.5 2.3C18.5 14.8 12 19 12 19Z"/>',
+    phone:   P + '<path d="M6.6 3.5h3l1.5 3.8-2 1.4a12 12 0 0 0 5.2 5.2l1.4-2 3.8 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.6 5.7 2 2 0 0 1 6.6 3.5Z"/>',
+    mail:    P + '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 5.5L20 7"/>',
+    pin:     P + '<path d="M12 21s6.5-6 6.5-10.5a6.5 6.5 0 1 0-13 0C5.5 15 12 21 12 21Z"/><circle cx="12" cy="10.5" r="2.3"/>',
+    calendar: P + '<rect x="3.5" y="5.5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3.5v4M16 3.5v4"/>',
+    award:   P + '<circle cx="12" cy="9" r="5.5"/><path d="m8.5 14 -1.5 6.5 5-2.5 5 2.5L15.5 14"/>',
+    sparkle: P + '<path d="m12 3.5 1.9 4.6 4.6 1.9-4.6 1.9L12 16.5l-1.9-4.6L5.5 10l4.6-1.9Z"/><path d="M18.5 16.5v3M20 18h-3"/>',
+    leaf:    P + '<path d="M5 19c0-7 4.5-11 14-11 0 8-4.5 11-10 11-1.6 0-3-.3-4-.8Z"/><path d="M5.5 18.5C8 15 11 12.8 15 11.5"/>',
+    tool:    P + '<path d="M14.5 4.5a4 4 0 0 0 5 5l-9 9-4-4Z"/><path d="m6 14-2 6 6-2"/>',
+    tag:     P + '<path d="M11 3.5H4.5V10l9.5 9.5L20.5 13Z"/><circle cx="7.8" cy="7.8" r="1.2"/>',
+    gift:    P + '<rect x="3.5" y="8.5" width="17" height="4" rx="1"/><path d="M5 12.5v6.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-6.5M12 8.5v12"/><path d="M12 8.5S10.5 3.5 8 3.5a2.2 2.2 0 0 0 0 5Zm0 0s1.5-5 4-5a2.2 2.2 0 0 1 0 5Z"/>',
+    users:   P + '<circle cx="9" cy="8" r="3.5"/><path d="M2.8 19.5a6.2 6.2 0 0 1 12.4 0"/><path d="M16 5.2a3.5 3.5 0 0 1 0 6.6M17.5 19.5a6 6 0 0 0-2-4.4"/>',
+    chart:   P + '<path d="M4 20V5M4 20h16"/><path d="M8 20v-6M12.5 20v-9M17 20v-4"/>',
+    box:     P + '<path d="m12 3.5 8 4v9l-8 4-8-4v-9Z"/><path d="m4 7.5 8 4 8-4M12 11.5V20"/>',
+    key:     P + '<circle cx="8" cy="12" r="4"/><path d="M12 12h9M18 12v3.5M15.5 12v2.5"/>'
+  };
+
+  function icon(name, cls) {
+    var body = ICONS[name] || ICONS.check;
+    return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' + body + '</svg>';
+  }
+
+  /** وسائل التواصل: [{key,label,icon,value,href,external}] */
+  function contactWays(contact) {
+    var ways = [];
+    if (!contact) return ways;
+
+    function add(key, label, ico, value, href, external) {
+      if (!value) return;
+      ways.push({ key: key, label: label, icon: ico, value: value, href: href, external: !!external });
+    }
+
+    add('phone', 'الهاتف', 'phone', contact.phone,
+      contact.phone ? 'tel:' + contact.phone.replace(/[^\d+]/g, '') : '');
+    add('whatsapp', 'واتساب', 'phone', contact.whatsapp,
+      contact.whatsapp ? 'https://wa.me/' + contact.whatsapp.replace(/[^\d]/g, '') : '', true);
+    add('email', 'البريد الإلكتروني', 'mail', contact.email,
+      contact.email ? 'mailto:' + contact.email : '');
+    add('instagram', 'إنستغرام', 'tag', contact.instagram,
+      contact.instagram ? 'https://instagram.com/' + contact.instagram : '', true);
+    add('facebook', 'فيسبوك', 'users', contact.facebook, contact.facebook, true);
+    add('telegram', 'تليجرام', 'mail', contact.telegram,
+      contact.telegram ? 'https://t.me/' + contact.telegram : '', true);
+    add('tiktok', 'تيك توك', 'tag', contact.tiktok,
+      contact.tiktok ? 'https://tiktok.com/@' + contact.tiktok : '', true);
+    add('youtube', 'يوتيوب', 'box', contact.youtube, contact.youtube, true);
+    add('address', 'العنوان', 'pin', contact.address, contact.map_url || '', !!contact.map_url);
+    return ways;
+  }
+
   var TOAST_DURATION = { success: 2600, info: 3000, warn: 3800, error: 4600 };
 
   var UI = {
@@ -67,7 +129,10 @@
       el.innerHTML =
         '<span class="toast-icon">' + TOAST_ICONS[type] + '</span>' +
         '<span class="toast-text"></span>' +
-        '<span class="toast-bar" style="animation-duration:' + duration + 'ms"></span>';
+        '<span class="toast-bar"></span>';
+
+      // مدة الشريط عبر CSSOM (لا سمة style مضمّنة) — سلوك واحد في الصفحتين
+      el.querySelector('.toast-bar').style.animationDuration = duration + 'ms';
       el.querySelector('.toast-text').textContent = message;
 
       if (options.action && options.action.label) {
@@ -140,49 +205,290 @@
       }
     },
 
-    renderBrand: function (settings, config) {
+renderBrand: function (settings, config) {
       var name = $('brand-name');
       var tagline = $('brand-tagline');
       var logo = $('brand-logo');
       if (!name) return;
 
-      name.textContent = settings.app_name || 'القائمة';
-      document.title = (settings.app_name || 'القائمة');
+      // اسم الشركة في company.json يتقدّم على إعدادات لوحة الإدارة
+      var company = (global.App && global.App.Store.company) || {};
+      var appName    = (company.brand && company.brand.name)    || settings.app_name    || '';
+      var appTagline = (company.brand && company.brand.tagline) || settings.app_tagline || '';
 
-      if (settings.app_tagline) {
-        tagline.textContent = settings.app_tagline;
+      name.textContent = appName || 'القائمة';
+      document.title = appName || 'القائمة';
+
+      if (appTagline) {
+        tagline.textContent = appTagline;
         tagline.hidden = false;
       } else {
         tagline.hidden = true;
       }
 
-      if (settings.logo_path) {
-        logo.src = settings.logo_path;
+      var logoSrc = (company.brand && company.brand.logo) || settings.logo_path;
+      if (logoSrc) {
+        logo.src = logoSrc;
         logo.hidden = false;
       } else {
         logo.hidden = true;
       }
 
+      var ways = contactWays(company.contact);
       var footer = $('app-footer');
       var contact = $('footer-contact');
-      if (settings.show_contact && contact) {
-        var parts = [];
-        if (settings.contact_phone) {
-          parts.push('<a href="tel:' + UI.escape(settings.contact_phone) + '" dir="ltr">' +
-            UI.escape(settings.contact_phone) + '</a>');
+
+      if (settings.show_contact !== false && contact && ways.length) {
+        contact.innerHTML = ways.slice(0, 3).map(function (way) {
+          return '<a href="' + UI.escape(way.href || '#') + '"' +
+            (way.external ? ' target="_blank" rel="noopener noreferrer"' : '') + '>' +
+            UI.escape(way.value) + '</a>';
+        }).join('<span class="footer-sep"> · </span>');
+      } else if (contact) {
+        contact.innerHTML = '';
+      }
+
+      var note = $('footer-note');
+      if (note) note.textContent = (company.footer && company.footer.note) || '';
+
+      var links = $('footer-links');
+      var items = (company.footer && company.footer.links) || [];
+      if (links) {
+        links.innerHTML = items.map(function (link) {
+          return '<a href="' + UI.escape(link.url) + '" target="_blank" rel="noopener noreferrer">' +
+            UI.escape(link.label) + '</a>';
+        }).join('<span class="footer-sep"> · </span>');
+        links.hidden = items.length === 0;
+      }
+
+      if (footer) UI.setHidden(footer, !(ways.length || (note && note.textContent) || items.length));
+    },
+
+    /* ==================================================================
+       الصفحة الرئيسية — تُبنى بالكامل من app/data/company.json
+       كل حقل فارغ في الملف يعني: لا تُرسم هذه القطعة أصلًا.
+       ================================================================== */
+
+    renderHome: function () {
+      var store = global.App.Store;
+      var company = store.company || {};
+      var brand = company.brand || {};
+      var about = company.about || {};
+      var cta = company.cta || {};
+
+      /* --- الغلاف: صورة + اسم + وصف + زر --- */
+      var heroImage = brand.hero_image || brand.cover_image;
+      if (heroImage) {
+        $('hero-image').src = heroImage;
+        $('hero-image').alt = brand.name || '';
+        UI.setHidden($('hero-media'), false);
+      } else {
+        UI.setHidden($('hero-media'), true);
+      }
+
+      $('hero-title').textContent = brand.name || store.settings.app_name || '';
+
+      var eyebrow = $('hero-eyebrow');
+      if (brand.tagline) {
+        eyebrow.textContent = brand.tagline;
+        UI.setHidden(eyebrow, false);
+      } else {
+        UI.setHidden(eyebrow, true);
+      }
+
+      var heroText = $('hero-text');
+      if (about.summary) {
+        heroText.textContent = about.summary;
+        UI.setHidden(heroText, false);
+      } else {
+        UI.setHidden(heroText, true);
+      }
+
+      // الزر الأول دومًا إلى المنتجات، والثاني إلى التواصل في وضع العرض فقط
+      var mainCta = $('hero-cta');
+      mainCta.textContent = store.catalogCta();
+      mainCta.setAttribute('data-go', 'products');
+
+      var second = $('hero-cta-2');
+      if (store.hasOrdering()) {
+        second.textContent = store.orderCta();
+        second.setAttribute('data-go', 'products');
+        UI.setHidden(second, false);
+      } else {
+        second.setAttribute('data-go', 'contact');
+        second.textContent = 'تواصل معنا';
+        UI.setHidden(second, false);
+      }
+
+      /* --- رسالة الترحيب (نفس الحقل القديم، بمكان أفضل) --- */
+      var welcome = $('welcome-notice');
+      if (store.settings.show_welcome && store.settings.welcome_message) {
+        welcome.textContent = store.settings.welcome_message;
+        UI.setHidden(welcome, false);
+      } else {
+        UI.setHidden(welcome, true);
+      }
+
+      /* --- نقاط التميّز --- */
+      var highlights = about.highlights || [];
+      var hlBox = $('highlights');
+      if (highlights.length) {
+        hlBox.innerHTML = highlights.map(function (item) {
+          return '<div class="highlight">' +
+            '<span class="highlight-ico">' + icon(item.icon, 'ico-fill') + '</span>' +
+            '<h3 class="highlight-title">' + UI.escape(item.title) + '</h3>' +
+            (item.text ? '<p class="highlight-text">' + UI.escape(item.text) + '</p>' : '') +
+          '</div>';
+        }).join('');
+        UI.setHidden(hlBox, false);
+      } else {
+        UI.setHidden(hlBox, true);
+      }
+
+      /* --- الأقسام: كتل مرنة بصور ونقاط --- */
+      var sections = company.sections || [];
+      $('home-sections').innerHTML = sections.map(function (section) {
+        var bullets = (section.bullets || []).length
+          ? '<ul class="bullets">' + section.bullets.map(function (line) {
+              return '<li>' + UI.escape(line) + '</li>';
+            }).join('') + '</ul>'
+          : '';
+
+        var media = section.image
+          ? '<div class="section-media"><img src="' + UI.escape(section.image) +
+            '" alt="" loading="lazy" decoding="async"></div>'
+          : '';
+
+        return '<section class="section' + (section.flip ? ' flip' : '') +
+          '" id="' + UI.escape(section.id) + '">' +
+          '<div class="section-body">' +
+            (section.icon ? '<span class="section-ico">' + icon(section.icon, 'ico-fill') + '</span>' : '') +
+            (section.title ? '<h2 class="section-heading">' + UI.escape(section.title) + '</h2>' : '') +
+            (section.body ? '<p class="section-text">' + UI.escape(section.body) + '</p>' : '') +
+            bullets +
+          '</div>' + media +
+        '</section>';
+      }).join('');
+
+      /* --- معرض الصور --- */
+      var gallery = about.gallery || [];
+      var galBox = $('gallery');
+      if (gallery.length) {
+        galBox.innerHTML = gallery.map(function (src, index) {
+          return '<figure class="gallery-item"><img src="' + UI.escape(src) + '" alt="' +
+            UI.escape(brand.name || '') + ' ' + (index + 1) +
+            '" loading="lazy" decoding="async"></figure>';
+        }).join('');
+        UI.setHidden(galBox, false);
+      } else {
+        UI.setHidden(galBox, true);
+      }
+
+      /* --- شريط الدعوة للإجراء --- */
+      var band = $('cta-band');
+      var ctaButton = $('cta-button');
+      if (cta.title || cta.text || cta.button_label) {
+        $('cta-title').textContent = cta.title || '';
+        UI.setHidden($('cta-title'), !cta.title);
+
+        $('cta-text').textContent = cta.text || '';
+        UI.setHidden($('cta-text'), !cta.text);
+
+        ctaButton.textContent = cta.button_label || 'تواصل معنا';
+        if (cta.button_url) {
+          ctaButton.setAttribute('href', cta.button_url);
+          ctaButton.setAttribute('target', '_blank');
+          ctaButton.setAttribute('rel', 'noopener noreferrer');
+          ctaButton.removeAttribute('data-go');
+        } else {
+          ctaButton.removeAttribute('target');
+          ctaButton.removeAttribute('rel');
+          ctaButton.setAttribute('data-go', 'contact');
         }
-        if (settings.contact_instagram) {
-          parts.push('<a href="https://instagram.com/' + UI.escape(settings.contact_instagram).replace(/^@/, '') +
-            '" target="_blank" rel="noopener noreferrer" dir="ltr">@' +
-            UI.escape(settings.contact_instagram) + '</a>');
-        }
-        contact.innerHTML = parts.join('<span class="footer-sep"> · </span>');
-        UI.setHidden(footer, parts.length === 0);
-      } else if (footer) {
-        UI.setHidden(footer, true);
+        UI.setHidden(band, false);
+      } else {
+        UI.setHidden(band, true);
+      }
+
+      /* --- نظرة سريعة على التواصل --- */
+      var ways = contactWays(company.contact);
+      var glance = $('contact-glance');
+      if (ways.length) {
+        $('glance-grid').innerHTML = ways.slice(0, 4).map(function (way) {
+          return '<a class="glance-item" href="' + UI.escape(way.href || '#') + '"' +
+            (way.external ? ' target="_blank" rel="noopener noreferrer"' : '') + '>' +
+            '<span class="glance-ico">' + icon(way.icon) + '</span>' +
+            '<span class="glance-text"><span class="glance-label">' + UI.escape(way.label) + '</span>' +
+            '<span class="glance-value">' + UI.escape(way.value) + '</span></span>' +
+          '</a>';
+        }).join('');
+        UI.setHidden(glance, false);
+      } else {
+        UI.setHidden(glance, true);
       }
     },
 
+    /* ==================================================================
+       صفحة التواصل — نفس المصدر، لكن بعرض أعمق
+       ================================================================== */
+
+    renderContact: function () {
+      var company = (global.App.Store.company) || {};
+      var contact = company.contact || {};
+      var brand = company.brand || {};
+
+      var intro = (company.about && company.about.summary) || brand.tagline || '';
+      $('contact-intro').textContent = intro;
+
+      var ways = contactWays(contact);
+      var grid = $('contact-grid');
+
+      if (ways.length) {
+        grid.innerHTML = ways.map(function (way) {
+          var body = '<span class="glance-ico">' + icon(way.icon) + '</span>' +
+            '<span class="glance-text"><span class="glance-label">' + UI.escape(way.label) + '</span>' +
+            '<span class="glance-value">' + UI.escape(way.value) + '</span></span>';
+
+          // العنوان المكتوب بلا رابط لا يقبل الضغط
+          return way.href
+            ? '<a class="glance-item" href="' + UI.escape(way.href) + '"' +
+              (way.external ? ' target="_blank" rel="noopener noreferrer"' : '') + '>' + body + '</a>'
+            : '<div class="glance-item is-static">' + body + '</div>';
+        }).join('');
+        UI.setHidden(grid, false);
+        UI.setHidden($('contact-empty'), true);
+      } else {
+        grid.innerHTML = '';
+        UI.setHidden(grid, true);
+        UI.setHidden($('contact-empty'), false);
+      }
+
+      /* --- أوقات العمل --- */
+      var hours = contact.working_hours || [];
+      if (hours.length) {
+        $('hours-list').innerHTML = hours.map(function (row) {
+          return '<div class="hours-row"><dt>' + UI.escape(row.day) + '</dt><dd>' +
+            (row.label ? UI.escape(row.label) : 'مغلق') + '</dd></div>';
+        }).join('');
+        UI.setHidden($('contact-hours'), false);
+      } else {
+        UI.setHidden($('contact-hours'), true);
+      }
+
+      /* --- العنوان والخريطة --- */
+      if (contact.address) {
+        $('address-text').textContent = contact.address;
+        if (contact.map_url) {
+          $('map-link').href = contact.map_url;
+          UI.setHidden($('map-link'), false);
+        } else {
+          UI.setHidden($('map-link'), true);
+        }
+        UI.setHidden($('contact-address'), false);
+      } else {
+        UI.setHidden($('contact-address'), true);
+      }
+    },
     renderLocationChip: function (location, config) {
       var chip = $('loc-chip');
       var text = $('loc-chip-text');
@@ -246,21 +552,25 @@
       if (box) UI.setHidden(box, true);
     },
 
-    renderProducts: function (products, filters) {
+renderProducts: function (products, filters) {
       var grid = $('product-grid');
       var empty = $('menu-empty');
       if (!grid) return;
+
+      var store = global.App.Store;
+      var ordering = store.hasOrdering();
+      var plural = store.productPlural();
 
       if (!products.length) {
         grid.innerHTML = '';
         UI.setHidden(empty, false);
         if (filters && filters.search) {
           $('menu-empty-title').textContent = 'لا توجد نتائج';
-          $('menu-empty-text').textContent = 'لم نجد منتجًا يطابق «' + filters.search +
-            '». جرّب كلمة أخرى أو تصفّح التصنيفات.';
+          $('menu-empty-text').textContent = 'لم نجد ' + store.productSingular() + ' يطابق «' +
+            filters.search + '». جرّب كلمة أخرى أو تصفّح التصنيفات.';
         } else {
-          $('menu-empty-title').textContent = 'القائمة قيد التحضير';
-          $('menu-empty-text').textContent = 'لم يُضف أي منتج بعد. عد بعد قليل أو اطلب من المزود.';
+          $('menu-empty-title').textContent = plural + ' قيد التحضير';
+          $('menu-empty-text').textContent = 'لم تُضف أي ' + plural + ' بعد. عد بعد قليل.';
         }
         return;
       }
@@ -273,28 +583,40 @@
         }).join('');
 
         var soldBadge = product.available === false ? '<span class="badge sold">غير متوفر</span>' : '';
-        var quantity = global.App.Store.quantityOf(product.id);
+        var quantity = store.quantityOf(product.id);
 
         var media = product.image
           ? '<img src="' + UI.escape(product.image) + '" alt="' + UI.escape(product.name) + '" loading="lazy" decoding="async">'
-          : '<div class="placeholder" aria-hidden="true">🍽️</div>';
+          : '<div class="placeholder" aria-hidden="true">&#10022;</div>';
 
         var desc = product.description
           ? '<p class="card-desc">' + UI.escape(product.description) + '</p>'
           : '';
 
-        var priceLabel = global.App.Store.settings.show_prices === false
+        var priceLabel = store.settings.show_prices === false
           ? ''
           : '<span class="card-price">' + UI.escape(product.price) + '</span>';
 
-        // المنتج الذي له تفاصيل يستحق الضغط على البطاقة؛ وإلا فالزر يضيف مباشرة
-        var addButton = product.available === false ? '' :
-          '<button class="card-add' + (quantity ? ' added' : '') + '" data-add="' + product.id +
-          '" aria-label="' + (quantity ? 'في السلة: ' + quantity + ' — إضافة ' : 'إضافة ') +
-          UI.escape(product.name) + '">' + (quantity ? quantity : '+') + '</button>';
+        /*
+         * وضع العرض فقط: لا زر إضافة. البطاقة معرض يُستعرض، والسعر يبقى
+         * معروضًا لأنه جزء من تعريف المنتج لا من مسار الشراء.
+         */
+        var addButton = '';
+        if (ordering && product.available !== false) {
+          addButton = '<button class="card-add' + (quantity ? ' added' : '') + '" data-add="' + product.id +
+            '" aria-label="' + (quantity ? 'في السلة: ' + quantity + ' — إضافة ' : 'إضافة ') +
+            UI.escape(product.name) + '">' + (quantity ? quantity : '+') + '</button>';
+        }
 
-        return '<article class="product-card' + (product.available === false ? ' is-out' : '') + '"' +
-          (product.has_details ? ' data-detail="' + product.id + '" role="button" tabindex="0"' : '') + '>' +
+        /*
+         * بلا نظام طلبات البطاقة تُفتح دائمًا: فتحها هو الطريقة الوحيدة
+         * للوصول إلى التفاصيل، فلا يبقى للمنتج إلا صورة واسم وسعر.
+         */
+        var openable = product.has_details || !ordering;
+
+        return '<article class="product-card' + (product.available === false ? ' is-out' : '') +
+          (openable ? ' is-openable' : '') + '"' +
+          (openable ? ' data-detail="' + product.id + '" role="button" tabindex="0"' : '') + '>' +
           '<div class="card-media">' + media +
             '<div class="card-badges">' + tags + soldBadge + '</div>' +
           '</div>' +
@@ -316,6 +638,17 @@
       if (!list) return;
 
       var store = global.App.Store;
+
+      // وضع العرض فقط: لا سلة أصلًا. نُخفي ما تبقّى من أي سلة قديمة محفوظة
+      // من قبل تغيير الوضع، بدل ترك أزرار معلّقة بلا عمل.
+      if (!store.hasOrdering()) {
+        if (store.cart.length) store.clearCart();
+        if (count) { count.textContent = '0'; count.hidden = true; }
+        UI.setHidden($('cart-fab'), true);
+        UI.setHidden($('cart-button'), true);
+        return;
+      }
+
       var items = store.cart;
       var total = items.reduce(function (sum, i) { return sum + i.quantity; }, 0);
 
@@ -484,7 +817,7 @@
         (product.description ? '<p class="sheet-desc">' + UI.escape(product.description) + '</p>' : '') +
         (details ? '<dl class="detail-list">' + details + '</dl>' : '');
 
-      UI.setHidden(footer, product.available === false);
+      UI.setHidden(footer, !global.App.Store.hasOrdering() || product.available === false);
       if (qty) qty.textContent = '1';
     },
 

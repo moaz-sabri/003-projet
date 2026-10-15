@@ -6,6 +6,11 @@ declare(strict_types=1);
  * فحص أمني حيّ — يختبر النسخة المنشورة فعليًا عبر HTTP.
  *
  *   php tools/security-probe.php http://127.0.0.1:8080
+ *   php tools/security-probe.php http://127.0.0.1:8080 "كلمة_المرور"
+ *   php tools/security-probe.php http://127.0.0.1:8080 --pass="كلمة_المرور"
+ *
+ * كلمة المرور تُقرأ بالترتيب: المعامل الثاني، ثم --pass، ثم متغير البيئة
+ * LC_ADMIN_PASS، ثم القيمة الافتراضية (لبيئة التطوير المحلية فقط).
  *
  * يغطي: حقن SQL، XSS، CSRF، الجلسات، الصلاحيات، رفع الملفات،
  *       تعداد المسارات، حد المحاولات، وتسرّب المعلومات.
@@ -16,7 +21,21 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $base     = rtrim($argv[1] ?? 'http://127.0.0.1:8080', '/');
-$password = $argv[2] ?? 'Test1234!';
+
+/**
+ * كلمة مرور المدير: المعامل الثاني، أو --pass=، أو متغير البيئة LC_ADMIN_PASS.
+ * الهدف: ألّا تُثبَّت كلمة مرور واحدة داخل الأداة، فتفشل الفحوص على أي نسخة
+ * استخدمت المدير كلمة مرور مختلفة.
+ */
+$password = $argv[2] ?? '';
+if (str_starts_with($password, '--pass=')) {
+    $password = substr($password, 7);
+}
+if ($password === '') {
+    $envPass = getenv('LC_ADMIN_PASS');
+    $password = is_string($envPass) && $envPass !== '' ? $envPass : 'Test1234';
+}
+
 $jar      = [];
 
 $pass = 0;

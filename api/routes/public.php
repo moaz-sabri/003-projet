@@ -62,7 +62,7 @@ $router->get('product.get', function (Request $request): void {
 
 /** المواقع النشطة (للاختيار اليدوي عند القدوم بدون QR). */
 $router->get('locations.list', function (): void {
-    if (!ProjectConfig::feature('locations')) {
+    if (!ProjectConfig::locationsEnabled()) {
         Response::ok(['locations' => []]);
     }
     $repo = new \App\Repositories\LocationRepository();
@@ -77,6 +77,16 @@ $router->get('locations.list', function (): void {
  * يدعم idempotency عبر الترويسة Idempotency-Key أو الحقل idempotency_key.
  */
 $router->post('order.create', function (Request $request) use ($readBody): void {
+    // وضع العرض_only: القالب بلا نظام طلبات أصلًا. الرفض من الخادم هو
+    // الحماية الحقيقية — إخفاء الزر في الواجهة ليس حماية كافية.
+    if (!ProjectConfig::hasOrdering()) {
+        throw new HttpError(
+            'ordering_disabled',
+            'هذا الموقع للعرض فقط ولا يستقبل طلبات. تواصل معنا مباشرة وسنخدمك.',
+            404
+        );
+    }
+
     $payload = array_merge($readBody($request), [
         'idempotency_key' => $request->header('Idempotency-Key') ?? ($request->input('idempotency_key') ?? ''),
     ]);
@@ -109,6 +119,10 @@ $router->post('order.create', function (Request $request) use ($readBody): void 
 
 /** متابعة حالة الطلب برمزه — قراءة فقط، بلا أي صلاحية تعديل أو إلغاء. */
 $router->get('order.status', function (Request $request): void {
+    if (!ProjectConfig::hasOrdering()) {
+        throw new HttpError('ordering_disabled', 'هذا الموقع للعرض فقط ولا يتابع طلبات.', 404);
+    }
+
     $token = (string) ($request->get('token') ?? '');
     $repo  = new OrderRepository();
     $order = $repo->findByToken($token);

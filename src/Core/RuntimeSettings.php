@@ -82,7 +82,7 @@ final class RuntimeSettings
             'app_name'        => self::get('app_name'),
             'app_tagline'     => self::get('app_tagline'),
             'welcome_message' => self::get('welcome_message'),
-            'logo_path'       => self::get('logo_path'),
+            'logo_path'       => self::assetUrl(self::get('logo_path')),
             'contact_phone'   => self::get('contact_phone'),
             'contact_instagram' => self::get('contact_instagram'),
             'show_welcome'    => self::bool('show_welcome'),
@@ -96,6 +96,31 @@ final class RuntimeSettings
     {
         $payload = self::all();
         unset($payload['admin_password_hash']);
+        // logo_path يبقى كما هو (المسار المخزَّن) لأن لوحة الإدارة تحتاجه للحذف،
+        // وlogo_url هو الرابط الجاهز للمعاينة.
+        $payload['logo_url'] = self::assetUrl((string) ($payload['logo_path'] ?? ''));
         return $payload;
+    }
+
+    /**
+     * يحوّل مسارًا مخزَّنًا في قاعدة البيانات إلى رابط جاهز للمتصفح.
+     *
+     * لماذا؟ لأن قاعدة البيانات تحفظ "brand/x.png" (نسبي لمجلد الرفع)، بينما
+     * المتصفح يحتاج "/app/uploads/brand/x.png". ترك التحويل للمتصفح ينتج
+     * شعارًا مكسورًا بمجرد أن يتغيّر مسار الصفحة.
+     */
+    private static function assetUrl(string $path): string
+    {
+        $path = trim($path);
+        if ($path === '') {
+            return '';
+        }
+        if (preg_match('#^(https?:)?//|^data:/#i', $path)) {
+            return $path;
+        }
+        if (str_contains($path, '..')) {
+            return '';
+        }
+        return \App\Config\ProjectConfig::uploadsUrl($path);
     }
 }

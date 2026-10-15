@@ -168,13 +168,13 @@ final class ProductRepository
         if (!ProjectConfig::feature('product_details')) {
             return false;
         }
-        $rules = ProjectConfig::PRODUCT_DETAIL_RULES;
+        $rules = ProjectConfig::productDetailRules();
 
         if (mb_strlen((string) $row['description']) >= $rules['min_description_length']) {
             return true;
         }
         $detailCount = 0;
-        foreach (ProjectConfig::PRODUCT_DETAIL_FIELDS as $field) {
+        foreach (ProjectConfig::productDetailFields() as $field) {
             $key = $field['key'];
             $value = $extra[$key] ?? null;
             $forced = in_array($key, $rules['always_detail_keys'], true);
@@ -190,7 +190,7 @@ final class ProductRepository
     {
         $extra = json_decode((string) ($row['extra_json'] ?? '{}'), true) ?: [];
         $out   = [];
-        foreach (ProjectConfig::PRODUCT_DETAIL_FIELDS as $field) {
+        foreach (ProjectConfig::productDetailFields() as $field) {
             $value = $extra[$field['key']] ?? '';
             $out[] = [
                 'key'   => $field['key'],
@@ -207,7 +207,7 @@ final class ProductRepository
                 $tagKeys[] = $field['key'];
             }
         }
-        $detailKeys = array_column(ProjectConfig::PRODUCT_DETAIL_FIELDS, 'key');
+        $detailKeys = array_column(ProjectConfig::productDetailFields(), 'key');
         foreach (ProjectConfig::productExtraFields() as $field) {
             $key = $field['key'];
             if (in_array($key, $detailKeys, true)) {

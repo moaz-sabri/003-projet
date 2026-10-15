@@ -9,7 +9,7 @@
    - لا يوجد طابور إرسال: الطلب دون اتصال لا يُرسل ولا يُؤجَّل.
    ========================================================================== */
 
-const VERSION = 'v1.2.0';
+const VERSION = 'v1.3.0';
 const SHELL_CACHE = `lc-shell-${VERSION}`;
 const DATA_CACHE = `lc-data-${VERSION}`;
 
@@ -108,6 +108,15 @@ self.addEventListener('fetch', (event) => {
   // صور المنتجات: الكاش أولًا
   if (url.pathname.includes('/app/uploads/')) {
     event.respondWith(cacheFirst(request, DATA_CACHE));
+    return;
+  }
+
+  // تنقّل إلى أي صفحة من صفحات التطبيق (/products، /contact، /cart، /order/...):
+  // يُخدم من كاش الهيكل عند غياب الاتصال، فلا يرى الزبون صفحة خطأ المتصفح.
+  // ملاحظة: مهم جدًا بعد الانتقال للروابط النظيفة، لأن هذه المسارات ليست
+  // من ملفات الكاش، فبدون هذا البند كان فتحها دون اتصال يفشل تمامًا.
+  if (request.mode === 'navigate') {
+    event.respondWith(staleWhileRevalidate(request, SHELL_CACHE));
     return;
   }
 

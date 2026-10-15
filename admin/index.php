@@ -21,6 +21,14 @@ $settings      = RuntimeSettings::publicPayload();
 $appName       = $settings['app_name'] ?: ProjectConfig::DEFAULT_APP_NAME;
 
 /*
+ * وضع المشروع: في وضع العرض فقط لا وجود للطلبات ولا للمواقع إطلاقًا،
+ * فإظهار تبويبهما في اللوحة يفتح صفحات فارغة ويوهم بأن هناك خللًا.
+ * الأفضل إخفاؤهما صراحةً.
+ */
+$hasOrdering  = ProjectConfig::hasOrdering();
+$hasLocations = ProjectConfig::locationsEnabled();
+
+/*
  * مسارات مطلقة تحسب من موضع السكربت، فتعمل اللوحة على جذر النطاق أو داخل
  * مجلد فرعي، ولا تنكسر عند فتح /admin بلا شرطة مائلة.
  */
@@ -58,6 +66,7 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="description" content="لوحة إدارة <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?> — الطلبات والمنتجات والمواقع ورموز QR">
   <title>لوحة الإدارة — <?= htmlspecialchars($appName, ENT_QUOTES, 'UTF-8') ?></title>
   <link rel="icon" href="<?= htmlspecialchars($assetBase . 'icon.svg', ENT_QUOTES, 'UTF-8') ?>" type="image/svg+xml">
   <link rel="stylesheet" href="assets/admin.css?v=<?= (int) @filemtime(__DIR__ . '/assets/admin.css') ?>">
@@ -69,7 +78,8 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
 <body>
 
 <!-- ===================== شاشة الدخول ===================== -->
-<div class="login-screen" id="login-screen" <?= $authenticated ? 'hidden' : '' ?>>
+<!-- role="main": شاشة الدخول والتطبيق لا يظهران معًا، فيبقى landmark واحدًا فقط -->
+<div class="login-screen" id="login-screen" role="main" <?= $authenticated ? 'hidden' : '' ?>>
   <form class="login-card" id="login-form" autocomplete="on">
     <div class="login-brand">
       <img src="<?= htmlspecialchars($assetBase . 'icon-192.png', ENT_QUOTES, 'UTF-8') ?>" alt="" width="56" height="56">
@@ -110,18 +120,18 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
       <button class="side-link is-active" data-view="dashboard">
         <span class="ico" aria-hidden="true">◫</span> الرئيسية
       </button>
-      <button class="side-link" data-view="orders">
+      <button class="side-link<?= $hasOrdering ? '' : ' hidden' ?>" data-view="orders">
         <span class="ico" aria-hidden="true">☰</span> الطلبات
         <span class="badge-count" id="nav-orders-count" hidden>0</span>
       </button>
       <button class="side-link" data-view="products">
-        <span class="ico" aria-hidden="true">✦</span> المنتجات
+        <span class="ico" aria-hidden="true">✦</span> <?= htmlspecialchars(ProjectConfig::productPlural(), ENT_QUOTES, 'UTF-8') ?>
       </button>
       <button class="side-link" data-view="categories">
         <span class="ico" aria-hidden="true">▤</span> التصنيفات
       </button>
-      <button class="side-link" data-view="locations">
-        <span class="ico" aria-hidden="true">⌖</span> المواقع وQR
+      <button class="side-link<?= $hasLocations ? '' : ' hidden' ?>" data-view="locations">
+        <span class="ico" aria-hidden="true">⌖</span> <?= htmlspecialchars(ProjectConfig::locationPlural(), ENT_QUOTES, 'UTF-8') ?> وQR
       </button>
       <button class="side-link" data-view="settings">
         <span class="ico" aria-hidden="true">⚙</span> إعدادات العرض
@@ -153,13 +163,27 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
 
     <section class="admin-view" id="view-dashboard">
       <div class="stats-grid" id="stats-grid"></div>
-      <div class="panel">
+      <div class="panel<?= $hasOrdering ? '' : ' hidden' ?>">
         <div class="panel-head">
           <h3>أحدث الطلبات</h3>
           <button class="btn btn-ghost btn-sm" data-goto="orders">كل الطلبات</button>
         </div>
         <div class="table-wrap" id="dashboard-orders"></div>
       </div>
+      <?php if (!$hasOrdering): ?>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>وضع العرض فقط</h3>
+            <a class="btn btn-ghost btn-sm" href="<?= htmlspecialchars(Paths::url('app/data/README.md'), ENT_QUOTES, 'UTF-8') ?>"
+               target="_blank" rel="noopener">دليل company.json</a>
+          </div>
+          <p class="panel-note">
+            هذا الموقع للعرض فقط: لا سلة ولا طلبات ولا متابعة. قناة الاستفسار الوحيدة
+            هي صفحة <strong>تواصل معنا</strong> التي تُبنى من
+            <code>app/data/company.json</code>. عدّل ذلك الملف لتغيير محتوى الصفحتين.
+          </p>
+        </div>
+      <?php endif; ?>
     </section>
 
     <section class="admin-view" id="view-orders" hidden>
@@ -199,7 +223,7 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
 
     <section class="admin-view" id="view-locations" hidden>
       <div class="panel-head">
-        <h3>المواقع ورموز QR</h3>
+        <h3><?= htmlspecialchars(ProjectConfig::locationPlural(), ENT_QUOTES, 'UTF-8') ?> ورموز QR</h3>
         <div>
           <button class="btn btn-ghost" id="print-qr" target="_blank">طباعة كل الرموز</button>
           <button class="btn btn-primary" id="location-new">+ موقع جديد</button>
@@ -211,6 +235,14 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
     </section>
 
     <section class="admin-view" id="view-settings" hidden>
+      <div class="panel">
+        <div class="panel-head"><h3>نوع المشروع</h3></div>
+        <div id="project-identity"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>محتوى الصفحتين: الرئيسية والتواصل</h3></div>
+        <div id="company-file"></div>
+      </div>
       <div class="panel">
         <div class="panel-head"><h3>إعدادات العرض</h3></div>
         <form id="settings-form" class="form-grid" enctype="multipart/form-data"></form>
