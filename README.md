@@ -498,9 +498,9 @@ php tests/run.php                                           تشغيل الاخ�
 
 ```bash
 php tests/run.php                              # 300+ اختبار وحدة وتكامل
-php tests/http/check.php <url>                 # 48 فحص نشر على نسخة منشورة
+php tests/http/check.php <url>                 # 50 فحص نشر على نسخة منشورة
 php tools/workflow-test.php <url>              # 69 خطوة سير عمل كامل (يحفظ كوكي)
-php tools/security-probe.php <url>             # 49 فحصًا أمنيًا حيًّا
+php tools/security-probe.php <url>             # 52 فحصًا أمنيًا حيًّا
 php tools/code-review.php                      # 29 مراجعة كود وأداء وقاعدة بيانات
 php tools/restore-test.php                     # 13 فحص نسخ احتياطي واستعادة
 php tools/clean-install-test.php               # تثبيت نظيف من الصفر ثم فحص كامل
@@ -616,7 +616,7 @@ php tests/run.php orders     # مجموعة واحدة
 وفحص نشر مستقل يعمل على أي نسخة منشورة (محليًا أو على الاستضافة):
 
 ```bash
-php tests/http/check.php https://your-site.com   # 48 فحصًا
+php tests/http/check.php https://your-site.com   # 50 فحصًا
 ```
 
 ---
