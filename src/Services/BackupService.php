@@ -64,9 +64,22 @@ final class BackupService
         return $out;
     }
 
+    /**
+     * النمط القانوني لاسم النسخة (بدون أدوات التثبيت).
+     *
+     * لاحقة «-N» إلزامية: create() يولّدها عند تصادم نسختين في الثانية نفسها،
+     * ولم يكن هذا النمط يسمح بها ⇒ النسخة التي أُنشئت في لحظة التصادم — وهي
+     * بالضبط النسخة الأهم — كانت تُدرج في القائمة ثم تُرفض عند التنزيل
+     * والاستعادة بـ 404.
+     *
+     * نستخدم \A و \z لا ^ و $: الأخير يطابق قبل سطر جديد، فيمرّر
+     * "backup-20261013-131813.sqlite\n" بلا رفض.
+     */
+    private const NAME_PATTERN = '\Abackup-\d{8}-\d{6}(-\d{1,3})?\.sqlite\z';
+
     public function backupPath(string $name): ?string
     {
-        if (!preg_match('/^backup-\d{8}-\d{6}\.sqlite$/', $name)) {
+        if (!preg_match('/' . self::NAME_PATTERN . '/', $name)) {
             return null;
         }
         $path = ProjectConfig::storagePath('backups/' . $name);
@@ -105,13 +118,36 @@ final class BackupService
         return copy($path, $dbPath);
     }
 
-    /** تصدير ملفات المشروع الحساسة (إعدادات) مع بيانات الدخول. */
+    /**
+     * تصدير الإعدادات **مبهمة**.
+     *
+     * كان يُرجع محتوى ملف الإعدادات كاملاً — بما فيه admin.password_hash
+     * (تجزئة bcrypt قابلة للكسر بلا اتصال) و app_key (سر طويل العمر) —
+     * رغم أن تعليق المسار وصفه بـ«نسخة مبهمة». الآن تُحذف الأسرار صراحةً.
+     *
+     * نستخدم app_config_file() لا storagePath()، وإلا أعاد هذا التصدير
+     * ملفًا فارغًا على التثبيتات التي نفّذت توصية المشروع نفسها
+     * (نقل البيانات خارج جذر الموقع).
+     */
     public function exportSettings(): string
     {
-        $configFile = ProjectConfig::storagePath('config/local.php');
+        $configFile = app_config_file();
         if (!is_file($configFile)) {
             return '';
         }
-        return (string) file_get_contents($configFile);
+
+        $config = require $configFile;
+        if (!is_array($config)) {
+            return '';
+        }
+
+        // أسرار لا تُصدَّر أبدًا.
+        unset($config['admin']['password_hash'], $config['app_key'], $config['admin_password_hash']);
+
+        $out  = "<?php\n";
+        $out .= "// نسخة مبهمة من إعدادات النسخة — بلا تجزئة كلمة المرور ولا مفتاح التطبيق.\n";
+        $out .= "// أُنتجت في " . date('Y-m-d H:i:s') . "\n\nreturn ";
+        $out .= var_export($config, true) . ";\n";
+        return $out;
     }
 }

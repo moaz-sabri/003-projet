@@ -13,6 +13,12 @@ use App\Core\Http\Request;
  */
 final class RateLimiter
 {
+    /** نافذة العدّ بالثواني. لا علاقة لها بحدّ الطلبات (وهو عدد/دقيقة في ProjectConfig). */
+    public const WINDOW_SECONDS = 60;
+
+    /** كل كم استدعاء نُشغّل تنظيف ملفات العدّ المنتهية. */
+    private const CLEANUP_EVERY = 50;
+
     public static function tooManyLoginAttempts(Request $request): bool
     {
         $ip      = $request->ip();
@@ -45,23 +51,81 @@ final class RateLimiter
         $file  = BASE_PATH . '/storage/tmp/rate-' . sha1($key) . '.json';
         $dir   = dirname($file);
         if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
+            @mkdir($dir, 0775, true);
         }
         $now   = time();
-        $state = ['start' => $now, 'count' => 0];
-        if (is_file($file)) {
-            $raw = json_decode((string) file_get_contents($file), true);
-            if (is_array($raw) && isset($raw['start'], $raw['count'])) {
-                $state = $raw;
-                if ($now - (int) $raw['start'] >= 60) {
-                    $state = ['start' => $now, 'count' => 0];
+
+        // القفل على نفس الملف للقراءة والكتابة معًا. القراءة كانت خارج القفل،
+        // فكان N طلب متزامن يقرأ العدّ نفسه ويكتبه (lost update) والحدّ الفعلي
+        // ≈ الحدّ × N — أي تجاوز كامل للمحدّد تحت أي حمل حقيقي.
+        $handle = @fopen($file, 'c+');
+        if ($handle === false) {
+            // تعذّر الفتح (قرص ممتلئ مثلًا): نسمح بدل تعطيل الحماية كلها بصمت.
+            error_log('RateLimiter: تعذّر فتح ملف العدّ ' . $file);
+            return true;
+        }
+
+        $allowed = true;
+        if (flock($handle, LOCK_EX)) {
+            $state = ['start' => $now, 'count' => 0];
+            $raw   = stream_get_contents($handle);
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && isset($decoded['start'], $decoded['count'])) {
+                    $state = $decoded;
+                    if ($now - (int) $decoded['start'] >= self::WINDOW_SECONDS) {
+                        $state = ['start' => $now, 'count' => 0];
+                    }
                 }
             }
-        }
-        $state['count']++;
-        file_put_contents($file, json_encode($state), LOCK_EX);
+            $state['count'] = (int) $state['count'] + 1;
+            $allowed = (int) $state['count'] <= $limitPerMinute;
 
-        return $state['count'] <= $limitPerMinute;
+            // الكتابة داخل القفل نفسه + تفريغ المخزن قبلها، وإلا تبقّت
+            // البايتات القديمة فتصبح JSON تالفًا.
+            $encoded = json_encode($state);
+            if ($encoded !== false && ftruncate($handle, 0) && rewind($handle)) {
+                fwrite($handle, $encoded);
+                fflush($handle);
+            }
+            flock($handle, LOCK_UN);
+        } else {
+            error_log('RateLimiter: تعذّر قفل ملف العدّ ' . $file);
+        }
+        fclose($handle);
+
+        // تنظيف دوري للملفات المنتهية — بدونه ينمو المجلد بلا حدّ: ملف واحد
+        // لكل (bucket|IP) إلى الأبد، وفضاء عناوين IPv6 يكاد يكون لا نهائيًا.
+        if (random_int(1, self::CLEANUP_EVERY) === 1) {
+            self::sweepTmp($now);
+        }
+
+        return $allowed;
+    }
+
+    /** يحذف ملفات العدّ التي انتهت نافذتها من storage/tmp. */
+    private static function sweepTmp(int $now): void
+    {
+        $dir = BASE_PATH . '/storage/tmp';
+        if (!is_dir($dir)) {
+            return;
+        }
+        $files = @glob($dir . '/rate-*.json') ?: [];
+        foreach ($files as $f) {
+            if ($now - (int) @filemtime($f) < self::WINDOW_SECONDS) {
+                continue;
+            }
+            $raw = @file_get_contents($f);
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && isset($decoded['start'])
+                    && $now - (int) $decoded['start'] < self::WINDOW_SECONDS
+                ) {
+                    continue;   // ما زال داخل نافذته
+                }
+            }
+            @unlink($f);
+        }
     }
 
     public static function clearLoginAttempts(Request $request): void

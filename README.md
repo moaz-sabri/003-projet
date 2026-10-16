@@ -100,9 +100,8 @@ docker exec light-commerce php bin/console seed:demo
 ```bash
 docker compose logs -f app                             # سجل الخادم
 docker exec light-commerce php tests/run.php        # 300+ اختبارًا
-docker exec light-commerce php tools/security-probe.php http://127.0.0.1
+docker exec light-commerce php tools/security-probe.php http://127.0.0.1:8080
 docker exec light-commerce php bin/console status   # حالة النسخة
-docker exec light-commerce php bin/console security:check  # فحص حماية البيانات
 docker exec light-commerce php bin/console security:check  # فحص حماية البيانات
 docker compose down                                     # إيقاف
 ```
@@ -591,6 +590,9 @@ curl -X POST "https://your-site.com/api/index.php?r=order.create" \
 `admin.products` · `admin.product.create|update|delete|image` ·
 `admin.locations` · `admin.location.save|delete` · `admin.settings` ·
 `admin.settings.update|export` · `admin.backups` · `admin.backup.create|download`
+
+> `admin.settings.export` هو **POST** لا GET (عملية تُعدّل الحالة ⇒ CSRF إلزامي)،
+> ويُخرج إعدادات **مبهمة**: بلا `password_hash` ولا `app_key`.
 
 ---
 

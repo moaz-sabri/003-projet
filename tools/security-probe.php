@@ -153,6 +153,10 @@ $protected = [
     '/.env'                         => 'ملف البيئة',
     '/storage/logs/'                => 'السجلات',
     '/tests/run.php'                => 'ملفات الاختبار',
+    // أرشيف = نسخة كاملة من المشروع تُنزَّل بترويسة واحدة
+    '/setup.zip'                    => 'أرشيف المشروع',
+    '/backup.zip'                   => 'أرشيف احتياطي',
+    '/project.tar.gz'               => 'أرشيف مضغوط',
 ];
 foreach ($protected as $path => $label) {
     $r = http($base . $path);

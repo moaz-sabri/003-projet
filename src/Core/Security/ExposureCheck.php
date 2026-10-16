@@ -37,6 +37,9 @@ final class ExposureCheck
         'src/Config/ProjectConfig.php' => 'إعدادات البنية',
         'bin/console'                 => 'أداة الطرفية',
         'tests/run.php'               => 'ملفات الاختبارات',
+        // أرشيف في جذر الموقع يجعل كل protections أعلاه بلا معنى: يُنزَّل
+        // الملف الواحد وفيه مجلد storage كاملًا. هذا أخطر تسرب ممكن.
+        'setup.zip'                   => 'أرشيف المشروع (فيه قاعدة البيانات وكلمة المرور)',
     ];
 
     /** المسارات التي تسريبها يُعرّض بيانات الزبائن أو المدير. */
@@ -44,6 +47,7 @@ final class ExposureCheck
         'storage/database/app.sqlite',
         'storage/config/local.php',
         'storage/backups/backup',
+        'setup.zip',
     ];
 
     /** ردود تعني «غير محمي» — قد تُنفَّذ ملفات PHP وتعود فارغة لكن الحماية معطّلة. */

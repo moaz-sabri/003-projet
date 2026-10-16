@@ -30,6 +30,16 @@ use App\Repositories\ProductRepository;
  */
 final class OrderService
 {
+    /**
+     * مفتاح التكرار: النمط نفسه الذي يستخدمه OrderRepository عند البحث.
+     * التطابق بين الاثنين شرط أساسي: لو قبل الإدخال مفتاحًا يرفضه البحث،
+     * فكل إرسال يمرّ ثم يصطدم بالقيد الفريد فيرجع 500 بدل إعادة نظيفة للطلب.
+     */
+    public const IDEMPOTENCY_PATTERN = '/^[A-Za-z0-9_\-]{8,80}$/';
+
+    /** أقصى طول لعمود idempotency_key — يوافق النمط أعلاه. */
+    public const IDEMPOTENCY_MAX = 80;
+
     private ProductRepository $products;
     private LocationRepository $locations;
     private OrderRepository $orders;
@@ -51,9 +61,23 @@ final class OrderService
             throw new HttpError('too_many_requests', 'طلبات كثيرة خلال وقت قصير. انتظر قليلًا ثم أعد المحاولة.', 429);
         }
 
-        $idempotencyKey = isset($payload['idempotency_key']) ? (string) $payload['idempotency_key'] : '';
+        // المفتاح يأتي من العميل: يُقصّ ويُتحقَّق منه *قبل* أي استخدام.
+        // بدون ذلك يُخزَّن نص طويل بلا سقف (حتى حدّ post_max_size) في عمود
+        // مفهرس لا يُنظَّف، ومفتاح لا يطابق النمط يمرّ من هنا فلا يمنعه البحث،
+        // فيصطدم بالقيد الفريد لاحقًا ويرجع 500 بدل إعادة نظيفة للطلب.
+        $idempotencyKey = isset($payload['idempotency_key']) && is_scalar($payload['idempotency_key'])
+            ? trim((string) $payload['idempotency_key'])
+            : '';
+        if ($idempotencyKey !== ''
+            && (strlen($idempotencyKey) > self::IDEMPOTENCY_MAX || !preg_match(self::IDEMPOTENCY_PATTERN, $idempotencyKey))
+        ) {
+            $idempotencyKey = '';   // مفتاح غير صالح = لا تكرار، لا خطأ للمستخدم
+        }
 
-        // (8) إن كان نفس المفتاح أُرسل من قبل → نُعيد الطلب نفسه دون تكرار
+        // (8) إعادة الإرسال بنفس المفتاح تُعيد الطلب نفسه دون تكرار (سلوك مقصود).
+        // ملاحظة أمنية: المفتاح يعمل كـ bearer token — من يعرفه يقرأ الطلب كاملًا.
+        // الواجهة تولّده بـ crypto.randomUUID() فلا يُخمَّن عمليًا، والجدار الفعلي
+        // أنه لا يظهر في referer ولا في أي رابط.
         if ($idempotencyKey !== '') {
             $existing = $this->orders->findByIdempotencyKey($idempotencyKey);
             if ($existing !== null) {
@@ -131,7 +155,7 @@ final class OrderService
                 'location_id'     => $location['id'] ?? null,
                 'location_label'  => $location['name'] ?? '',
                 'status'          => 'new',
-                'fields_json'     => json_encode($fields, JSON_UNESCAPED_UNICODE),
+                'fields_json'     => self::encodeJson($fields),
                 'notes'           => mb_substr((string) $notes, 0, 500),
                 'total_minor'     => $total,
                 'items_count'     => $itemsCount,
@@ -153,7 +177,7 @@ final class OrderService
                     'unit_price_minor' => $line['unit_price_minor'],
                     'quantity'         => $line['quantity'],
                     'line_total_minor' => $line['line_total_minor'],
-                    'extra_json'       => json_encode($line['extra'], JSON_UNESCAPED_UNICODE),
+                    'extra_json'       => self::encodeJson($line['extra']),
                     'created_at'      => $now,
                 ]);
             }
@@ -227,20 +251,42 @@ final class OrderService
         $merged = [];
         $notes  = '';
 
-        foreach ($items as $item) {
+        foreach ($items as $index => $item) {
+            // عنصر غير صالح يُهمَل بصمت: الزبون يختار 3 أصناف فيُحذف صنفان
+            // ولا يعرف. الأصل: كل خطأ في عنصر يجب أن يُقال، لا أن يُخفى.
             if (!is_array($item)) {
-                continue;
+                throw new HttpError('invalid_cart_item', 'عنصر في السلة غير صالح.', 422, [
+                    'fields' => ['items.' . $index => 'عنصر غير صالح.'],
+                ]);
+            }
+            $rawQty = $item['quantity'] ?? null;
+            if (!is_scalar($rawQty) || !is_numeric($rawQty)) {
+                throw new HttpError('invalid_quantity', 'كمية غير صالحة في السلة.', 422, [
+                    'fields' => ['items.' . $index . '.quantity' => 'كمية غير صالحة.'],
+                ]);
             }
             $productId = (int) ($item['product_id'] ?? 0);
-            $quantity  = (int) ($item['quantity'] ?? 0);
+            $quantity  = (int) $rawQty;
 
-            if ($productId <= 0 || $quantity <= 0) {
-                continue;
+            if ($productId <= 0) {
+                throw new HttpError('invalid_cart_item', 'أحد عناصر السلة لا يشير إلى منتج.', 422, [
+                    'fields' => ['items.' . $index . '.product_id' => 'منتج غير صالح.'],
+                ]);
             }
-            if ($quantity > ProjectConfig::MAX_QTY_PER_ITEM) {
+            if ($quantity <= 0) {
+                throw new HttpError('invalid_quantity', 'الكمية يجب أن تكون واحدًا على الأقل.', 422, [
+                    'fields' => ['items.' . $index . '.quantity' => 'كمية يجب أن تكون 1 أو أكثر.'],
+                ]);
+            }
+
+            // الخطر: كان الفحص على الكمية المفردة قبل الدمج، فإرسال 40 عنصرًا
+            // لنفس المنتج بكمية 99 كان يتجاوز الحدّ 40 ضعفًا (المتوثَّق 99).
+            // الفحص على المجموع بعد الدمج هو الصحيح.
+            $mergedQty = ($merged[$productId] ?? 0) + $quantity;
+            if ($quantity > ProjectConfig::MAX_QTY_PER_ITEM || $mergedQty > ProjectConfig::MAX_QTY_PER_ITEM) {
                 throw new HttpError('invalid_quantity', 'الكمية المطلوبة كبيرة جدًا.', 422);
             }
-            $merged[$productId] = ($merged[$productId] ?? 0) + $quantity;
+            $merged[$productId] = $mergedQty;
         }
 
         if ($merged === []) {
@@ -358,6 +404,20 @@ final class OrderService
         }
 
         return $clean;
+    }
+
+    /**
+     * ترميز JSON للأعمدة النصية. json_encode يُرجع false عند UTF-8 تالف؛
+     * كان false يُربط كـ PARAM_INT = 0 فتُخزَّن «0» بدل الحقول — أي أن بايتًا
+     * واحدًا تالفًا يمحو كل حقول الطلب بصمت.
+     */
+    private static function encodeJson(array $data): string
+    {
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+        if (!is_string($json)) {
+            throw new HttpError('invalid_input', 'بيانات الطلب تحتوي على أحرف غير صالحة.', 422);
+        }
+        return $json;
     }
 
     /** تحديث حالة الطلب من الإدارة مع احترام الانتقالات المسموحة. */

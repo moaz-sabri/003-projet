@@ -69,7 +69,7 @@ final class ProductRepository
             'description'  => $data['description'] ?? '',
             'price_minor'  => (int) ($data['price_minor'] ?? 0),
             'image_path'   => $data['image_path'] ?? '',
-            'extra_json'   => json_encode($data['extra'] ?? [], JSON_UNESCAPED_UNICODE),
+            'extra_json'   => self::encodeExtra($data['extra'] ?? []),
             'is_available' => !empty($data['is_available']) ? 1 : 0,
             'is_featured'  => !empty($data['is_featured']) ? 1 : 0,
             'sort_order'   => (int) ($data['sort_order'] ?? 0),
@@ -86,7 +86,7 @@ final class ProductRepository
             'description'  => $data['description'] ?? '',
             'price_minor'  => (int) ($data['price_minor'] ?? 0),
             'image_path'   => $data['image_path'] ?? '',
-            'extra_json'   => json_encode($data['extra'] ?? [], JSON_UNESCAPED_UNICODE),
+            'extra_json'   => self::encodeExtra($data['extra'] ?? []),
             'is_available' => !empty($data['is_available']) ? 1 : 0,
             'is_featured'  => !empty($data['is_featured']) ? 1 : 0,
             'sort_order'   => (int) ($data['sort_order'] ?? 0),
@@ -100,6 +100,26 @@ final class ProductRepository
     }
 
     /* ------------------------------------------------------------------ */
+
+    /**
+     * ترميز الحقول الإضافية إلى JSON، دون أن يبتلع الفشل.
+     *
+     * json_encode يُرجع false عند UTF-8 تالف أو INF/NAN. كان يُمرَّر كما هو
+     * إلى bindValue الذي يربطه كـ PARAM_INT = 0، فتُخزَّن القيمة النصية
+     * «0» في عمود TEXT — أي أن حقلًا واحدًا فيه بايت تالف يمحو كل الحقول
+     * الإضافية للمنتج بصمت. الآن نفشل بصوت عالٍ.
+     */
+    private static function encodeExtra(mixed $extra): string
+    {
+        if (!is_array($extra) || $extra === []) {
+            return '{}';
+        }
+        $json = json_encode($extra, JSON_UNESCAPED_UNICODE);
+        if (!is_string($json)) {
+            throw new \InvalidArgumentException('تعذّر ترميز الحقول الإضافية للمنتج (بيانات غير صالحة).');
+        }
+        return $json;
+    }
 
     private function formatCatalog(array $row): array
     {

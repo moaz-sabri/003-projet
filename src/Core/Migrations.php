@@ -236,9 +236,27 @@ final class Migrations
         }
     }
 
-    /** حذف كل البيانات (migrate:fresh) */
+    /**
+     * حذف كل البيانات (migrate:fresh).
+     *
+     * تحذيران يغيبان عن الاستدعاء القديم:
+     *  1) كان ينفَّذ بلا تأكيد ولا نسخة احتياطية: خطأ واحد = فقدان كل
+     *     الطلبات والأسماء بلا رجعة.
+     *  2) كان يُسقط جدول settings وفيه business_preset، فتعود قيمة
+     *     seedSettings() الفارغة ⇒ يسقط applyStoredPreset() إلى الثوابت.
+     *     النتيجة: نسخة «عرض فقط» (showroom) تتحوّل صمتًا إلى «مطعم مع
+     *     طلبات» — تغيير جذري في سلوك الموقع بلا أي تنبيه.
+     * لذلك: نحفظ نوع النشاط ونعيد زرعه.
+     */
     public static function reset(): void
     {
+        $preset = '';
+        try {
+            $preset = (string) \App\Core\RuntimeSettings::get('business_preset', '');
+        } catch (\Throwable) {
+            $preset = '';
+        }
+
         $tables = ['order_events', 'order_items', 'orders', 'products', 'categories', 'locations', 'settings', 'daily_counters', 'login_attempts'];
         Database::pdo()->exec('PRAGMA foreign_keys = OFF');
         foreach ($tables as $t) {
@@ -246,5 +264,9 @@ final class Migrations
         }
         Database::pdo()->exec('PRAGMA foreign_keys = ON');
         self::migrate();
+
+        if ($preset !== '' && BusinessPresets::exists($preset)) {
+            Database::update('settings', ['value' => $preset], 'key = :key', ['key' => 'business_preset']);
+        }
     }
 }

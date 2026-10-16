@@ -1,9 +1,45 @@
 # تقرير المراجعة — القالب التجاري الخفيف
 
-**النسخة:** `1.0.0`
+**النسخة المُراجَعة عند الكتابة:** `1.0.0`
+**النسخة الحالية:** `1.3.0` — انظر `CHANGELOG.md` لما تلا هذه المراجعة.
 **تاريخ المراجعة:** 2026-10-13
 **المراجع:** مراجعة معمارية + جودة + أمن (أتمتة بالكامل)
 **نطاق المراجعة:** كل الكود، كل مسارات الـ API، الواجهتان، عامل الخدمة، النشر على PHP عادي و Docker.
+
+> ⚠️ **أرقام هذا التقرير تخصّ نسخة 1.0.0 وقيستها عندها.** المشروع تجاوزها
+> لاحقًا؛ راجع `README.md` §8 و §10 للأرقام الحيّة. الرقمان اللذان نستبدلهما
+> هنا إلى «ما بعد المراجعة» كانا موضع تضارب داخلي: `236` في الملخّص و`223`
+> في جدول المراحل — والواقع在当时 كان `223`.
+
+---
+
+## 0. مراجعة ما قبل النشر (2026-10-16) — الإضافات
+
+رُوجعت الشيفرة مجددًا قبل النشر، وأصلح ما يلي:
+
+| # | الوصف | الخطورة | الحالة |
+|---|-------|---------|--------|
+| 1 | `setup.zip` في جذر الموقع: أرشيف يحوي `local.php` (تجزئة كلمة المرور + `app_key`) و`app.sqlite` (كل الطلبات) — كان يُخدَم عبر HTTP على Apache و nginx وخادم التطوير دون حجب | 🔴 حرجة | حُذف + حجب الأرشيفات في 4 طبقات + فحص في `ExposureCheck` |
+| 2 | `Money::parseToMinor`: فاصل آلاف + كسور ⇒ سعر خاطئ بمعامل 1000 **بلا أي خطأ** (`12,000.75` → `12`)، والأرقام الهندية ⇒ `0`، والسالب ⇒ موجب | 🔴 حرجة | أُصلح |
+| 3 | `admin.settings.export`: يصدّر `password_hash` و`app_key` كاملَين رغم وصفه بـ«مبهم»، وهو GET بلا CSRF | 🟠 عالية | صار مبهمًا فعلاً + POST مع CSRF |
+| 4 | `migrate:fresh`: يحذف كل البيانات بلا تأكيد ولا نسخة، **ويُسقط نوع النشاط** فتتحوّل نسخة «عرض فقط» إلى «مطعم» صمتًا | 🟠 عالية | `--force` + نسخة أمان تلقائية + الحفاظ على `business_preset` |
+| 5 | `MAX_QTY_PER_ITEM` يُفحص قبل الدمج ⇒ 40 عنصرًا × 99 = كمية 3960 (40× الحدّ المتوثَّق) | 🟠 عالية | الفحص على المجموع بعد الدمج |
+| 6 | عناصر السلة غير الصالحة تُحذف بصمت: الزبون يختار 3 أصناف فيصل صنفان بلا رسالة | 🟠 متوسطة | خطأ صريح مع رقم العنصر |
+| 7 | `RateLimiter::hitPublicApi`: القراءة خارج القفل ⇒ تجاوز كامل تحت التزامن، وملفات لا تُحذف أبدًا ⇒ نمو بلا حدّ | 🟠 متوسطة | `flock` على القراءة والكتابة + تنظيف دوري |
+| 8 | `created_at = ''` (الافتراضي في المخطط) ⇒ `TypeError` ⇒ 500 على صفحة الطلب | 🟠 متوسطة | حارس `timeLabel()` |
+| 9 | `json_encode` غير مفحوص: بايت UTF-8 تالف واحد يمحو **كل** الحقول الإضافية بصمت (`false` ← `PARAM_INT 0` ← `'0'`) | 🟠 متوسطة | يفشل بصوت عالٍ في المنتجات والطلبات |
+| 10 | `Validator`: لا فحص نوع ⇒ `name[]=x` يرجع 500 بدل 422؛ والمسافات تمرّ من حدّ أدنى 1 | 🟡 منخفضة | فحص `is_scalar` + `trim` |
+| 11 | `Request::header()` لا يجد `Content-Type` (مفتاح خاطئ)؛ `_method[]` يرمي `TypeError` ⇒ 500 على مسار عام | 🟡 منخفضة | أُصلح |
+| 12 | `CategoryRepository::update` يكتب `sort_order = 0` عند غيابه ⇒ تختفي ترتيب كل التصنيفات | 🟡 منخفضة | لا يُكتب إلا إن أُرسل |
+| 13 | نسخ الاحتياطي ذات اللاحقة `-N` تُنشأ وتُدرج في القائمة ثم تُرفض عند الاستعادة بـ 404 | 🟡 منخفضة | النمط يسمح بها + `\z` بدل `$` |
+| 14 | `idempotency_key`: بلا تحقق عند الإدخال ⇒ 300KB في عمود مفهرس، ومفتاح لا يطابق النمط ⇒ 500 متكرر | 🟡 منخفضة | تحقق من النمط والطول قبل الاستخدام |
+| 15 | لا `.dockerignore` ⇒ `COPY .` يرسل `.git` وكل غير المتتبَّع إلى daemon | 🟠 متوسطة | أُضيف |
+| 16 | `test.md` فارغ ومتتبَّع · `storage/uploads/` مجلد ميت · 3 قواعد `.gitkeep` لموارد غير موجودة | 🟢 تجميلي | حُذفت |
+| 17 | `AUDIT_REPORT` يقول `1.0.0` ويجمد `admin.settings.save` (غير موجود) ويناقض نفسه في الأرقام | 🟢 توثيق | صُحّح |
+
+> **ملاحظة على حدود المراجعة:** `admin.backup.download` و`admin.qr` و`admin.order.qr`
+> تبقى GET بلا CSRF. غير قابلة للاستغلال عبر CSRF فعليًا بفضل
+> `SameSite=Strict` وعدم وجود CORS، لكنها موصى بها كتحسين لاحق.
 
 ---
 
@@ -187,7 +223,10 @@
 | العقد | القيمة المجمّدة |
 |-------|-----------------|
 | **مسارات الـ API** | `api/index.php?r=<route>` — لا مسارات نظيفة، لا إعادة تسمية |
-| **أسماء المسارات** | `admin.login` `admin.session` `admin.logout` `admin.products` `admin.product.create` `admin.product.update` `admin.product.delete` `admin.product.image` `admin.category.*` `admin.locations` `admin.location.save` `admin.location.delete` `admin.orders` `admin.order` `admin.order.status` `admin.order.qr` `admin.dashboard` `admin.settings` `admin.settings.save` `admin.password` `admin.backup.create` `admin.backup.download` `admin.backups` `admin.qr` `catalog.snapshot` `product.get` `locations.list` `order.create` `order.status` `ping` |
+| **أسماء المسارات** | `admin.login` `admin.session` `admin.logout` `admin.products` `admin.product.create` `admin.product.update` `admin.product.delete` `admin.product.image` `admin.category.*` `admin.locations` `admin.location.save` `admin.location.delete` `admin.orders` `admin.order` `admin.order.status` `admin.order.qr` `admin.dashboard` `admin.settings` `admin.settings.update` `admin.settings.export` (POST) `admin.password` `admin.backup.create` `admin.backup.download` `admin.backups` `admin.qr` `admin.qr.sheet` `admin.categories` `admin.categories.reorder` `admin.orders.active` `catalog.snapshot` `product.get` `locations.list` `order.create` `order.status` `ping` |
+
+> تصحيح: كان هذا الجدول يجمد `admin.settings.save` وهو **غير موجود**؛
+> الاسم الصحيح `admin.settings.update`. كما كان يغفل ستّة مسارات موجودة فعلًا.
 | **صيغة الاستجابة** | `{ "ok": true, "data": {...} }` أو `{ "ok": false, "error": { "code": "...", "message": "...", "fields": {...} } }` |
 | **رموز الأخطاء** | `unauthenticated` `invalid_csrf` `validation_failed` `empty_cart` `location_required` `product_unavailable` `too_many_items` `rate_limited` `not_found` `offline` |
 | **معنى HTTP** | `200` نجاح · `201` إنشاء · `401` بلا جلسة · `403` صلاحية/رفض CSRF · `404` غير موجود · `409` تعارض · `422` خطأ تحقّق أو قاعدة عمل · `429` حد معدل · `500` خطأ غير متوقع |

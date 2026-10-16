@@ -198,7 +198,24 @@ switch ($command) {
 
     case 'migrate:fresh': {
         $ensureInstalled();
+        // حذف كل شيء لا يُعكس. نرفض التنفيذ بلا --force صراحةً،
+        // ونأخذ نسخة احتياطية تلقائيًا قبل الحذف حتى لا تكون رجعة
+        // ممكنة بلا سماء.
+        if (!isset($options['force'])) {
+            $say('هذا الأمر يحذف كل البيانات (كل الطلبات والمنتجات والإعدادات) نهائيًا.', 'warn');
+            $say('للتأكيد أعِد الأمر مع --force:', 'warn');
+            $say('    php bin/console migrate:fresh --force', 'warn');
+            exit(1);
+        }
         require_once BASE_PATH . '/src/bootstrap.php';
+        $safety = \App\Services\BackupService::class;
+        try {
+            $backup = (new $safety())->create();
+            $say('نسخة أمان: ' . basename($backup), 'ok');
+        } catch (\Throwable $e) {
+            $say('تعذّر إنشاء نسخة الأمان: ' . $e->getMessage() . ' — أُوقفت العملية.', 'err');
+            exit(1);
+        }
         \App\Core\Migrations::reset();
         $say('تمت إعادة إنشاء قاعدة البيانات (كل البيانات حُذفت).', 'warn');
         exit(0);

@@ -38,14 +38,19 @@ final class OrderRepository
     /** الطلبات الجديدة غير المكتملة (لتحديث دوري في الإدارة). */
     public function activeSince(string $since): array
     {
-        $since = date('Y-m-d H:i:s', strtotime($since . ' -5 minutes'));
+        // strtotime يُرجع false عند فشل التحليل، و date() في PHP 8.4 يرمي
+        // TypeError على false ⇒ 500 كامل على لوحة الإدارة من مدخل واحد خاطئ.
+        $ts = strtotime($since);
+        if ($ts === false) {
+            $ts = time();
+        }
         $rows = Database::all(
             "SELECT id, number, served_on, order_type, customer_name, customer_phone,
                     location_id, location_label, status, total_minor, items_count, created_at
              FROM orders
              WHERE status IN ('new', 'in_progress') AND created_at >= :since
              ORDER BY id DESC LIMIT 60",
-            ['since' => $since]
+            ['since' => date('Y-m-d H:i:s', $ts - 300)]
         );
         return array_map([$this, 'formatSummary'], $rows);
     }
@@ -188,7 +193,10 @@ final class OrderRepository
             'total_minor'   => (int) $row['total_minor'],
             'items_count'   => (int) $row['items_count'],
             'created_at'    => (string) $row['created_at'],
-            'time_label'    => date('H:i', strtotime((string) $row['created_at'])),
+            // المخطط يعرّف created_at TEXT NOT NULL DEFAULT ''، فقيمة فارغة واردة
+            // فعلًا (صف قديم أو إدراج يدوي). strtotime('') = false و date()
+            // في PHP 8.4 يرمي TypeError ⇒ كان صف واحد يكسر صفحة الطلب 500.
+            'time_label'    => self::timeLabel((string) $row['created_at']),
         ];
     }
 
@@ -201,6 +209,16 @@ final class OrderRepository
         $full['tracking_token'] = (string) $row['public_token'];
         $full['next_statuses'] = ProjectConfig::ORDER_STATUSES[$row['status']]['next'] ?? [];
         return $full;
+    }
+
+    /**
+     * وقت الطلب بصيغة HH:MM، أو نص فارغ إن كان الحقل غير قابل للتحليل.
+     * لا يرمي: date() في PHP 8.4 ترمي TypeError على false.
+     */
+    private static function timeLabel(string $value): string
+    {
+        $ts = trim($value) === '' ? false : strtotime($value);
+        return $ts === false ? '' : date('H:i', $ts);
     }
 
     private function formatItem(array $row): array

@@ -36,7 +36,22 @@ final class Validator
         if ($v === null || $v === '') {
             return $this;
         }
-        $v = (string) $v;
+        // نوع خاطئ (مصفوفة/كائن) = خطأ عميل يجب أن يكون 422 لا 500.
+        // التحويل المباشر '(string) $array' يرفع «Array to string conversion»،
+        // وbootstrap يحوّل كل Warning إلى استثناء ⇒ 500 بلا معنى في السجل.
+        if (!is_scalar($v)) {
+            $this->errors[$field] = $label . ' يجب أن يكون نصًا.';
+            return $this;
+        }
+        // المسافات تُقصّ قبل القياس: وإلا مرّ «   » (طوله 3) من حدّ أدنى 1،
+        // فيُخزَّن اسم تصنيف من مسافات فقط.
+        $v = trim((string) $v);
+        if ($v === '') {
+            if ($min > 0) {
+                $this->errors[$field] = $label . ' قصير جدًا.';
+            }
+            return $this;
+        }
         $len = mb_strlen($v);
         if ($len < $min) {
             $this->errors[$field] = $label . ' قصير جدًا.';
@@ -95,7 +110,7 @@ final class Validator
         if ($v === null || $v === '') {
             return $this;
         }
-        if (!in_array((string) $v, array_map('strval', $allowed), true)) {
+        if (!is_scalar($v) || !in_array((string) $v, array_map('strval', $allowed), true)) {
             $this->errors[$field] = $label . ' غير صالح.';
         }
         return $this;
@@ -107,7 +122,7 @@ final class Validator
         if ($v === null || $v === '') {
             return $this;
         }
-        if (!preg_match($pattern, (string) $v)) {
+        if (!is_scalar($v) || !preg_match($pattern, (string) $v)) {
             $this->errors[$field] = $message;
         }
         return $this;

@@ -42,14 +42,20 @@ final class CategoryRepository
 
     public function update(int $id, array $data): void
     {
-        Database::update('categories', [
+        $fields = [
             'name'        => (string) ($data['name'] ?? ''),
             'description' => $data['description'] ?? '',
             'image_path'  => $data['image_path'] ?? '',
-            'sort_order'  => (int) ($data['sort_order'] ?? 0),
             'is_active'   => !empty($data['is_active']) ? 1 : 0,
             'updated_at'  => date('Y-m-d H:i:s'),
-        ], 'id = :id', ['id' => $id]);
+        ];
+        // كان `?? 0`: أي نداء تحديث بلا sort_order يكتب 0 فيختفى ترتيب
+        // كل التصنيفات دفعة واحدة — بلا خطأ ولا رسالة.
+        if (array_key_exists('sort_order', $data)) {
+            $fields['sort_order'] = (int) $data['sort_order'];
+        }
+
+        Database::update('categories', $fields, 'id = :id', ['id' => $id]);
     }
 
     public function reorder(array $orderedIds): void

@@ -148,11 +148,42 @@ $config    = $catalog['json']['data']['config'] ?? [];
 
 check('المنتجات معروضة', is_array($products), 'عدد=' . count($products));
 check('الأسعار منسّقة', $products !== [] && str_contains((string) ($products[0]['price'] ?? ''), (string) ($config['currency'] ?? 'x')));
-check('إعدادات البنية موجودة', count($config['order_types'] ?? []) > 0);
+
+// وضع «العرض فقط» نوع نشاط معتمد (general / showroom) يرفض الطلبات
+// عمدًا بـ 404 ordering_disabled. كان هذا الفحص يفترض وجود الطلبات دائمًا
+// فيسجّل 5 إخفاقات كاذبة على كل نسخة عرض — أي أن الأداة كانت تُبلّغ عن
+// «موقع معطوب» والموقع سليم تمامًا. نعتمد الفحوص على ما تعتمده النسخة.
+$isCatalogOnly = ($config['mode'] ?? '') === 'catalog'
+    || ($config['order_types'] ?? []) === [];
+
+check(
+    'إعدادات البنية موجودة',
+    $isCatalogOnly || count($config['order_types'] ?? []) > 0,
+    $isCatalogOnly ? 'وضع العرض فقط — لا أنواع طلب (سلوك صحيح)' : ''
+);
+
+if ($isCatalogOnly) {
+    echo "\n\033[33mوضع العرض فقط (لا طلبات) — تخطّى فحوص الطلبات. هذا سلوك النسخة المعتمد.\033[0m\n";
+}
 
 if ($products === []) {
     echo "\n\033[33mلا توجد منتجات — تخطى فحوص الطلبات. أضف منتجًا من لوحة الإدارة ثم أعد الفحص.\033[0m\n";
-    exit(0);
+    exit($failed === 0 ? 0 : 1);
+}
+
+if ($isCatalogOnly) {
+    // نتحقق من الرفض الصحيح بدل تجاهل الفحوص: 404 لا 500 ولا 200.
+    $denied = req($base . '/api/index.php?r=order.create', [
+        'order_type'    => 'dine_in',
+        'customer_name' => 'فحص نشر آلي',
+        'items'         => [$item],
+    ]);
+    check(
+        'وضع العرض فقط يرفض إنشاء الطلب على الخادم',
+        $denied['status'] === 404,
+        'status=' . $denied['status']
+    );
+    exit($failed === 0 ? 0 : 1);
 }
 
 $productId = $products[0]['id'];
@@ -221,6 +252,9 @@ $protectedPaths = [
     '/bin/console',
     '/tests/run.php',
     '/.htaccess',
+    // أرشيف في جذر الموقع = نزّل storage كاملًا بترويسة واحدة
+    '/setup.zip',
+    '/backup.zip',
 ];
 
 foreach ($protectedPaths as $path) {

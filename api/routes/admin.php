@@ -590,12 +590,20 @@ $router->get('admin.backup.download', function (Request $request) use ($requireA
     exit;
 });
 
-/** تصدير إعدادات الدخول (نسخة مبهمة) — للاستعادة اليدوية عند الحاجة. */
-$router->get('admin.settings.export', function (Request $request) use ($requireAuth): void {
-    $requireAuth($request);
+/**
+ * تصدير إعدادات الدخول — نسخة مبهمة (بلا تجزئة كلمة المرور ولا مفتاح التطبيق).
+ *
+ * كان GET بلا CSRF رغم أنه عملية تُعدّل الحالة، وأسراره كانت
+ * تُصدَّر كاملة. صار POST مع رمز CSRF مثل كل عمليات التعديل الأخرى.
+ */
+$router->post('admin.settings.export', function (Request $request) use ($requireAdmin): void {
+    $requireAdmin($request);
     $data = (new BackupService())->exportSettings();
+    if ($data === '') {
+        throw new HttpError('not_found', 'ملف الإعدادات غير موجود.', 404);
+    }
     header('Content-Type: text/plain; charset=utf-8');
-    header('Content-Disposition: attachment; filename="app-config.php"');
+    header('Content-Disposition: attachment; filename="app-config-masked.php"');
     header('Cache-Control: no-store');
     echo $data;
     exit;

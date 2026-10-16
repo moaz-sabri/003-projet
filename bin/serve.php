@@ -54,6 +54,14 @@ if (preg_match('#/(?:^|/)\.#', $path)) {
     return true;
 }
 
+// منع خدمة الأرشيفات: أرشيف في جذر الموقع يحمل نسخة كاملة من المشروع
+// (تجزئة كلمة مرور المدير + قاعدة بيانات الطلبات) ولا سبب لوجوده.
+if (preg_match('/\.(zip|tar|gz|tgz|bz2|xz|7z|rar|iso|sql|dump)$/i', $path)) {
+    http_response_code(404);
+    echo '404 Not Found';
+    return true;
+}
+
 /* ------------------- منع تنفيذ السكربتات داخل الرفع ------------------- */
 if (preg_match('#^/app/uploads/#', $path) && preg_match('/\.(php\d?|phtml|phar|cgi|pl|py|sh)$/i', $path)) {
     http_response_code(403);

@@ -30,11 +30,13 @@ final class Request
     public function method(): string
     {
         $m = strtoupper($this->server['REQUEST_METHOD'] ?? 'GET');
-        // دعم-method override عبر حقل _method أو ترويسة
+        // دعم method override عبر حقل _method أو ترويسة
         if ($m === 'POST') {
             $override = $this->post('_method') ?? $this->header('X-HTTP-Method-Override');
-            if ($override) {
-                $m = strtoupper($override);
+            // بلا فحص النوع: «_method[]=PUT» كان يرمي TypeError داخل strtoupper
+            // فيعطي 500 على مسار عام بلا مصادقة (مصنع أخطاء مفتوح).
+            if (is_scalar($override) && $override !== '') {
+                $m = strtoupper((string) $override);
             }
         }
         return $m;
@@ -78,6 +80,9 @@ final class Request
 
     private function rawBody(): string
     {
+        // static داخل دالة = متغيّر واحد لكل العملية لا لكل كائن. تحت
+        // PHP-FPM كل طلب عملية جديدة فلا أثر، لكن أي سياق دائم (RoadRunner)
+        // أو سكربت ينشئ كائنَي Request يحصل على جسم الطلب الأول دائمًا.
         static $cached = null;
         if ($cached === null) {
             $cached = file_get_contents('php://input') ?: '';
@@ -88,7 +93,17 @@ final class Request
     public function header(string $name, ?string $default = null): ?string
     {
         $key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
-        return $this->server[$key] ?? $this->server[strtoupper($name)] ?? $default;
+        $v = $this->server[$key] ?? null;
+        if ($v === null) {
+            // بعض الترويسات (Content-Type…) لا تُخزَّن ببادئة HTTP_ في PHP،
+            // فالمفتاح الصحيح هو الاسم بحروف كبيرة (مع استبدال الشرطة).
+            $alt = strtoupper(str_replace('-', '_', $name));
+            $v = $this->server[$alt] ?? null;
+        }
+        if (!is_string($v)) {
+            return $default;
+        }
+        return $v;
     }
 
     public function file(string $key): ?array
