@@ -168,11 +168,14 @@ if ($isCatalogOnly) {
 
 if ($products === []) {
     echo "\n\033[33mلا توجد منتجات — تخطى فحوص الطلبات. أضف منتجًا من لوحة الإدارة ثم أعد الفحص.\033[0m\n";
-    exit($failed === 0 ? 0 : 1);
+    exit($fail === 0 ? 0 : 1);
 }
 
+$productId = $products[0]['id'];
+$item      = ['product_id' => $productId, 'quantity' => 1];
+
 if ($isCatalogOnly) {
-    // نتحقق من الرفض الصحيح بدل تجاهل الفحوص: 404 لا 500 ولا 200.
+    // لا نتجاهل الفحوص: نتحقق أن الرفض على الخادم صحيح (404 لا 500 ولا 200).
     $denied = req($base . '/api/index.php?r=order.create', [
         'order_type'    => 'dine_in',
         'customer_name' => 'فحص نشر آلي',
@@ -183,11 +186,16 @@ if ($isCatalogOnly) {
         $denied['status'] === 404,
         'status=' . $denied['status']
     );
-    exit($failed === 0 ? 0 : 1);
+    // لا نخرج هنا: بقية الفحوص (حماية المسارات، حماية الإدارة) تهمّ
+    // وضع العرض تمامًا، بل هي أهم ما يُفحص فيه.
+    $skipOrderChecks = true;
 }
 
-$productId = $products[0]['id'];
-$item      = ['product_id' => $productId, 'quantity' => 1];
+/* ------------------- فحوص الطلبات (وضع الطلبات فقط) ------------------- */
+if (isset($skipOrderChecks)) {
+    // نسخة عرض فقط: نتخطّى بقية فحوص الطلبات، لا الفحص كله.
+    // بقية الفحوص أدناه (حماية المسارات والإدارة) تهمّ هذه النسخة أكثر.
+} else {
 
 /* نوع طلب يفرض الموقع إن وُجد */
 $requiresLocation = false;
@@ -239,6 +247,8 @@ check('متابعة الطلب برمزه تعمل', $track['status'] === 200, '
 
 $badToken = req($base . '/api/index.php?r=order.status&token=00000000000000000000000000000000');
 check('رمز متابعة غير صالح مرفوض', $badToken['status'] === 404);
+
+} // end فحوص الطلبات
 
 /* --------------------------- حماية المسارات --------------------------- */
 section('٣. حماية الملفات الحساسة');
