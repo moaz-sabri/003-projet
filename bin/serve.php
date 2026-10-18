@@ -7,12 +7,20 @@ declare(strict_types=1);
  *
  *   php -S localhost:8000 bin/serve.php
  *
- * خادم PHP المدمج لا يقرأ ملفات .htaccess، لذا نطبّق قواعد الحماية
- * البرمجية هنا: منع الوصول إلى src/ و storage/ و bin/ و tests/ و docker/،
- * ومنع تنفيذ أي سكربت داخل app/uploads، وتوجيه كل المسارات غير الملفية
- * إلى index.php — تمامًا كما يفعل Apache عبر .htaccess و nginx عبر
- * try_files. بهذه الطريقة تُختبر الروابط النظيفة (/cart، /checkout)
- * محليًا بنفس سلوك الإنتاج.
+ * ## لماذا يوجد أصلًا؟
+ *
+ * خادم PHP المدمج لا يقرأ إعدادات nginx، ولاCompiled منها شيئًا. فلو
+ * لم يكن هنا لاختبرنا الروابط النظيفة (/cart، /checkout) على سلوك
+ * مختلف عن الإنتاج — وهذا بالضبط ما حدث مرتين في هذا المشروع.
+ *
+ * ## القاعدة التي تجعله آمنًا كبديل
+ *
+ * لا يكفي أن «يعمل»؛ يجب أن **يرفض ما يرفضه nginx**. لذلك تُشتق
+ * القواعد أدناه من نفس قائمة المسارات المحجوبة في nginx، و
+ * `tests/suites/deploy.php` يفشل إن اختلفت الاثنتان. أي إضافة في
+ * nginx بلا مقابل هنا = اختبار يفشل، لا حماية ناقصة صامتة.
+ *
+ * المرجع: docker/nginx.conf و deploy/nginx/site.conf.
  */
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
@@ -21,16 +29,17 @@ $query = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_QUERY) ?? '';
 
 /* --------------------------- مسارات ممنوعة --------------------------- */
 /*
- * setup/ ليست محجوبة هنا عن قصد: صفحة التهيئة تعمل مرة واحدة ثم ترفض العمل،
- * وملف .htaccess لا يحجبها أيضًا. كانت محجوبة في هذا الراوتر فصار التثبيت
- * المحلي عبر /setup/ مستحيلًا، أي أن أداة التطوير لم تطابق الإنتاج في أهم
- * خطوة على الإطلاق. الحماية الحقيقية بعد التهيئة: احذف مجلد setup/.
+ * نفس قائمة nginx: location ~ ^/(src|storage|bin|tests|tools|docs|docker)(/|$)
+ *
+ * setup/ ليست محجوبة عن قصد: التثبيت الأول يتم عبرها، والعودة إليها
+ * بعد تدمير النسخة تتطلّب مفتاحًا لا يعرفه إلا صاحب النسخة. الحماية
+ * هنا تأتي من مفتاح إعادة البناء، لا من الحجب.
  */
 $blockedPrefixes = ['/src/', '/storage/', '/bin/', '/tests/', '/tools/', '/docs/', '/docker/', '/vendor/'];
 $blockedExact    = [
     '/src', '/storage', '/bin', '/tests', '/tools', '/docs', '/docker', '/vendor',
-    '/.htaccess', '/.env', '/.git', '/composer.json', '/composer.lock', '/Dockerfile',
-    '/README.md', '/CHANGELOG.md', '/AUDIT_REPORT.md',
+    '/.env', '/.git', '/composer.json', '/composer.lock', '/Dockerfile', '/compose.yaml',
+    '/README.md', '/CHANGELOG.md', '/AUDIT_REPORT.md', '/dist',
 ];
 
 if (in_array(rtrim($path, '/'), $blockedExact, true)) {
@@ -57,6 +66,18 @@ if (preg_match('#/(?:^|/)\.#', $path)) {
 // منع خدمة الأرشيفات: أرشيف في جذر الموقع يحمل نسخة كاملة من المشروع
 // (تجزئة كلمة مرور المدير + قاعدة بيانات الطلبات) ولا سبب لوجوده.
 if (preg_match('/\.(zip|tar|gz|tgz|bz2|xz|7z|rar|iso|sql|dump)$/i', $path)) {
+    http_response_code(404);
+    echo '404 Not Found';
+    return true;
+}
+
+/*
+ * امتدادات حسّاسة — مطابقة لقاعدة nginx:
+ *   location ~* \.(sqlite|sqlite-wal|sqlite-shm|db|key|pem|log|ini)$
+ * طبقة ثانية فوق حجب المجلدات: لو رُفع ملف قاعدة إلى مكان آخر، أو
+ * ظهر .env أو .key جديد، فالحجب بالمجلد وحده لا يكفي.
+ */
+if (preg_match('/\.(sqlite|sqlite-wal|sqlite-shm|db|key|pem|log|ini)$/i', $path)) {
     http_response_code(404);
     echo '404 Not Found';
     return true;

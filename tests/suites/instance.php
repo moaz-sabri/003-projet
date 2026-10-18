@@ -62,8 +62,8 @@ function makeSandbox(array $tables = ['products', 'categories', 'locations', 'or
 
     file_put_contents($root . '/app/data/company.json', '{"brand":{"name":"قديم"}}');
 
-    // .htaccess داخل الرفع: لا يُحذف — حذفه يفتح تنفيذ سكربتات في المجلد.
-    file_put_contents($root . '/app/uploads/.htaccess', 'php_flag engine off');
+    // لا ملفات .htaccess بعد الآن: حماية الرفع يوفّرها nginx.
+    // نترك المجلد نفسه موجودًا لأن تفريغه هو المطلوب لا حذفه.
     file_put_contents($root . '/app/uploads/products/old.png', 'x');
     file_put_contents($root . '/app/uploads/brand/logo.png', 'x');
 
@@ -333,7 +333,6 @@ return static function (): void {
 
     Assert::false(is_file($sandbox . '/app/uploads/products/old.png'), 'حُذفت صور المنتجات');
     Assert::false(is_file($sandbox . '/app/uploads/brand/logo.png'), 'حُذف الشعار');
-    Assert::true(is_file($sandbox . '/app/uploads/.htaccess'), 'بقي ملف حماية الرفع');
     Assert::true(is_dir($sandbox . '/app/uploads'), 'بقي مجلد الرفع نفسه');
 
     Assert::false(is_file($sandbox . '/storage/backups/backup-20260101-000000.sqlite'), 'حُذفت النسخ الاحتياطية');

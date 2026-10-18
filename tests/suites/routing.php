@@ -79,19 +79,27 @@ return function (): void {
     /* ==================== ٤. قواعد إعادة التوجيه ==================== */
     Assert::group('التوجيه — قواعد الخوادم');
 
-    $htaccess = (string) file_get_contents(BASE_PATH . '/.htaccess');
-    Assert::contains($htaccess, 'RewriteRule ^app/index\.html$ / [R=301,L]', 'Apache: الرابط القديم يوجّه إلى الجذر');
-    Assert::contains($htaccess, 'RewriteRule ^index\.php$ / [R=301,L]', 'Apache: /index.php يوجّه إلى الجذر');
-    Assert::contains($htaccess, 'RewriteRule ^admin$ admin/ [R=301,L]', 'Apache: /admin بلا شرطة مائلة');
-    Assert::contains($htaccess, 'RewriteRule ^ index.php [L]', 'Apache: تطبيق صفحة واحدة لكل مسار نظيف');
-    Assert::contains($htaccess, 'DirectoryIndex index.php', 'Apache: الجذر يقدّم index.php');
-    Assert::contains($htaccess, '%{REQUEST_FILENAME} !-f', 'Apache: الملفات الموجودة تُقدَّم كما هي');
-
+    /*
+     * القواعد في مكانين لا ثلاثة: إعداد Docker وإعداد الإنتاج.
+     * القالب nginx فقط: الإعداد في مكانين لا ثلاثة (Docker + الإنتاج)،
+     * وكلاهما تنتج قواعده من هذا الزوج. والتطابق بينهما مفحوص في
+     * suites/deploy.php.
+     */
     $nginx = (string) file_get_contents(BASE_PATH . '/docker/nginx.conf');
+    $site  = (string) file_get_contents(BASE_PATH . '/deploy/nginx/site.conf');
+
     Assert::contains($nginx, 'location = /app/index.html { return 301 /$is_args$args; }', 'nginx: الرابط القديم يوجّه مع الحفاظ على المعاملات');
     Assert::contains($nginx, 'try_files $uri $uri/ @shop;', 'nginx: تطبيق صفحة واحدة');
     Assert::contains($nginx, 'fastcgi_param SCRIPT_FILENAME $document_root/index.php;', 'nginx: الجذر يمر على index.php');
     Assert::contains($nginx, 'index index.php;', 'nginx: فهرس الجذر index.php');
+
+    Assert::contains($site, 'location = /app/index.html { return 301 /$is_args$args; }', 'إعداد الإنتاج: الرابط القديم يوجّه');
+    Assert::contains($site, 'try_files $uri $uri/ @shop;', 'إعداد الإنتاج: تطبيق صفحة واحدة');
+    Assert::contains($site, 'fastcgi_param SCRIPT_FILENAME $document_root/index.php;', 'إعداد الإنتاج: الجذر يمر على index.php');
+    Assert::contains($site, 'index index.php;', 'إعداد الإنتاج: فهرس الجذر index.php');
+    Assert::contains($site, 'location = /admin { return 301 /admin/; }', 'إعداد الإنتاج: /admin بلا شرطة مائلة');
+
+    Assert::false(is_file(BASE_PATH . '/.htaccess'), 'لا .htaccess — القالب nginx فقط');
 
     $serve = (string) file_get_contents(BASE_PATH . '/bin/serve.php');
     Assert::contains($serve, '$path === \'/app/index.html\'', 'خادم التطوير: يوحّد الرابط القديم');

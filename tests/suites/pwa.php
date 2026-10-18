@@ -160,10 +160,17 @@ return function (): void {
     foreach ([
         'app/index.html', 'admin/index.php', 'api/index.php',
         'src/Config/ProjectConfig.php', 'src/bootstrap.php',
-        'storage/.htaccess', '.htaccess', 'Dockerfile', 'compose.yaml',
-        'README.md', 'bin/console',
+        'src/Config/ReleaseManifest.php', 'src/Services/InstanceService.php',
+        'Dockerfile', 'compose.yaml', 'README.md', 'bin/console',
+        'deploy/nginx/site.conf',
     ] as $path) {
         Assert::true(file_exists(BASE_PATH . '/' . $path), 'ملف مطلوب موجود: ' . $path);
+    }
+
+    // القالب nginx فقط: بقاء أي .htaccess يعني عودة الحماية إلى ملف داخل
+    // المجلد، وهي نسخة تختلف عن nginx فتنتج سلوكًا لا يطابق الإنتاج.
+    foreach (['.htaccess', 'src/.htaccess', 'storage/.htaccess', 'app/uploads/.htaccess'] as $gone) {
+        Assert::false(file_exists(BASE_PATH . '/' . $gone), 'لا ' . $gone . ' في القالب');
     }
 
     foreach (['database', 'uploads', 'backups', 'logs', 'config'] as $folder) {

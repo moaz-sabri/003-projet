@@ -55,5 +55,7 @@ Thumbs.db
 # --- متغيّرات بيئة التطوير -------------------------------------------------
 .env.local
 .env.*.local
+dist/
 node_modules/
+.github/
 vendor/

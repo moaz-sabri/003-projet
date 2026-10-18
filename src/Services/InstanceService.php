@@ -286,8 +286,10 @@ final class InstanceService
             $removed[] = $this->relative($paths['root'], $paths['config']);
         }
 
-        // 3ج · الصور المرفوعة (نترك المجلد نفسه وملف الحماية .htaccess).
-        $removed = array_merge($removed, $this->clearDirectory($paths['root'], $paths['uploads'], ['.htaccess']));
+        // 3ج · الصور المرفوعة. نترك المجلد نفسه: تفريغه هو المطلوب،
+        // وحذفه يجعل أول رفع صورة يفشل حتى أول mkdir. الحماية من
+        // تنفيذ السكربتات يوفّرها nginx لا ملف داخل المجلد.
+        $removed = array_merge($removed, $this->clearDirectory($paths['root'], $paths['uploads']));
 
         // 3د · محتوى الشركة — يُعاد توليده بقالب فارغ عند البناء الجديد.
         if (is_file($paths['company']) && @unlink($paths['company'])) {
@@ -456,9 +458,9 @@ final class InstanceService
      * ===================================================================== */
 
     /**
-     * يمسح محتوى مجلد مع استثناء ملفات، ويُرجع ما حُذف نسبيًا للجذر.
+     * يمسح محتوى مجلد، ويُرجع ما حُذف نسبيًا للجذر.
      *
-     * @param array<int,string> $keep أسماء ملفات تُترك (مثل .htaccess).
+     * @param array<int,string> $keep أسماء ملفات تُترك داخل المجلد.
      * @return array<int,string>
      */
     private function clearDirectory(string $root, string $dir, array $keep = []): array
@@ -477,8 +479,6 @@ final class InstanceService
             if (in_array($item->getFilename(), $keep, true)) {
                 continue;
             }
-            // الملف .htaccess داخل مجلد فرعي يُحذف مع المجلد — الاستثناء
-            // يخصّ ملفات المجلد الأعلى فقط، وهو ما نحتاجه بالضبط.
             $ok = $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
             if ($ok) {
                 $removed[] = $this->relative($root, $item->getPathname());

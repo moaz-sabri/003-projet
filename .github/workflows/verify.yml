@@ -1,0 +1,243 @@
+name: verify
+
+# =============================================================================
+# خط التحقق المستمر
+# =============================================================================
+#
+# يعمل على النسخة **التطويرية** فقط. لا شيء هنا يُنشر على خادم ولا يبني
+# صورة Docker — والفصل مقصود:
+#
+#   • الاختبارات تعمل على PHP مباشرة بلا خادم (أسرع وأثبت).
+#   • فحص nginx يعمل على nginx حقيقي مثبَّت من apt، لا على حاوية.
+#     هذا هو ما يجعله مستقلًا عن Docker: إن نكسُر إعداد nginx فلن
+#     يُكتشف من حاوية لأنه يعمل، بل من هنا لأنه **مكسور فعلًا**.
+#   • حزمة الإنتاج تُبنى وتُفحص، وتُرفَق كأثر للبناء. لا نشر تلقائي.
+#
+# الوسم v* يشغّل نفس الفحص ولا يفعل أكثر: النشر قرار بشري.
+# =============================================================================
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # ١. الاختبارات — بلا خادم وبلا Docker
+  # ===========================================================================
+  unit:
+    name: اختبارات (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.1', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_sqlite, mbstring, gd, fileinfo
+          coverage: none
+
+      - name: فحص صياغة كل ملفات PHP
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r -d '' f; do
+            if ! php -l "$f" > /dev/null 2>&1; then
+              php -l "$f"
+              failed=1
+            fi
+          done < <(find src admin api setup bin tools tests -type f \( -name '*.php' -o -name 'console' \) -print0)
+          # bin/console بلا امتداد — يُفحص صراحةً
+          php -l bin/console > /dev/null
+          exit $failed
+
+      - name: اختبارات الوحدة والتكامل
+        run: php tests/run.php
+
+      - name: مراجعة الكود وقاعدة البيانات
+        run: php tools/code-review.php
+
+      - name: حدّ النشر — تطابق البيئات وحدود الحزمة
+        run: |
+          php -r '
+            require "src/Core/Autoloader.php";
+            $m = App\Config\ReleaseManifest::files();
+            if (count($m) < 20) { fwrite(STDERR, "بيان الإصدار فارغ\n"); exit(1); }
+            foreach ($m as $f) {
+              if (!is_file($f)) { fwrite(STDERR, "مجلّف في البيان وغير موجود: $f\n"); exit(1); }
+            }
+            echo "حدّ النشر سليم: " . count($m) . " ملف\n";
+          '
+
+  # ===========================================================================
+  # ٢. nginx حقيقي — لا Docker
+  # ===========================================================================
+  nginx:
+    name: nginx حقيقي بلا Docker
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, mbstring, gd, fileinfo
+          coverage: none
+
+      - name: تثبيت nginx و php-fpm (من apt، لا حاوية)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nginx php-fpm
+          # البادئة التي يفتحها nginx هنا، و fastcgi_params fourni مع الحزمة
+          sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+          sudo rm -f /etc/nginx/sites-enabled/default
+
+      # الحزمة هي ما يُفحص — لا شجرة التطوير. هذا هو الفرق بين «نجح عندي»
+      # و«نجح عند المستخدم»: الشجرة الكاملة تحوي أدوات لا وجود لها هناك.
+      - name: بناء حزمة الإنتاج
+        run: php tools/build-release.php
+
+      - name: تجهيز جذر موقع نظيف من الحزمة
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /var/www/light-commerce
+          sudo cp -a dist/light-commerce-*/. /var/www/light-commerce/
+          sudo chown -R www-data:www-data /var/www/light-commerce/storage /var/www/light-commerce/app/uploads
+          sudo chmod -R 775 /var/www/light-commerce/storage /var/www/light-commerce/app/uploads
+          ls /var/www/light-commerce
+
+      - name: تركيب إعداد الإنتاج وتعديل fastcgi_pass
+        run: |
+          set -euo pipefail
+          sudo cp /var/www/light-commerce/deploy/nginx/site.conf \
+                  /etc/nginx/sites-available/light-commerce
+          sudo ln -sf /etc/nginx/sites-available/light-commerce \
+                     /etc/nginx/sites-enabled/light-commerce
+
+          # إعداد الإنتاج يفترض 127.0.0.1:9000. توزيعات Debian تفتح مقبس
+          # unix بدل المنفذ، فنوجّهه إلى ما فتحه php-fpm فعلًا بدل تخمين.
+          SOCK=$(sudo ls /run/php/php*-fpm.sock 2>/dev/null | head -1 || true)
+          if [ -n "$SOCK" ]; then
+            sudo sed -i "s#fastcgi_pass 127.0.0.1:9000;#fastcgi_pass unix:$SOCK;#" \
+                 /etc/nginx/sites-available/light-commerce
+            echo "استُخدم المقبس: $SOCK"
+          else
+            echo "php-fpm يستمع على منفذ"
+          fi
+
+          sudo nginx -t
+
+      - name: تشغيل php-fpm و nginx
+        run: |
+          sudo systemctl start php$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')-fpm || \
+          sudo service php-fpm start
+          sudo systemctl start nginx || sudo service nginx start
+          sleep 2
+          sudo systemctl is-active nginx
+
+      - name: تهيئة النسخة داخل nginx الحقيقي
+        run: |
+          sudo -u www-data php /var/www/light-commerce/bin/console install \
+            --url=http://127.0.0.1 --user=ci --pass="CiTest!2026x" --preset=restaurant
+
+      - name: فحص النشر (50+ فحصًا على نسخة منشورة)
+        run: php tests/http/check.php http://127.0.0.1
+
+      - name: فحص أمني حيّ (52 فحصًا)
+        env:
+          LC_ADMIN_PASS: 'CiTest!2026x'
+        run: php tools/security-probe.php http://127.0.0.1
+
+      - name: تقرير تسريب المسارات الحسّاسة
+        run: sudo -u www-data php /var/www/light-commerce/bin/console security:check --url=http://127.0.0.1
+
+      - name: تسريب أخطاء في سجل nginx
+        run: |
+          if sudo grep -E '\b(PHP )?(Fatal|Parse) error' /var/log/nginx/error.log; then
+            echo "::error::أخطاء PHP في سجل nginx"
+            exit 1
+          fi
+          echo "سجل nginx نظيف"
+
+      - name: إثبات أن إعداد الإنتاج يحجب ما يحجبه إعداد Docker
+        run: |
+          set -euo pipefail
+          for p in /storage/database/app.sqlite /storage/config/local.php \
+                   /src/Config/ProjectConfig.php /bin/console \
+                   /tests/run.php /tools/code-review.php \
+                   /deploy/nginx/site.conf /README.md; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1$p")
+            if [ "$code" = "200" ]; then
+              echo "::error::$p يُخدام برمز 200 — الحجب لا يعمل"
+              exit 1
+            fi
+            echo "$p -> $code"
+          done
+
+      - name: إثبات أن الروابط النظيفة تعمل
+        run: |
+          set -euo pipefail
+          for p in / /admin/ /cart /checkout /sw.js /app/manifest.webmanifest; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1$p")
+            echo "$p -> $code"
+            [ "$code" = "200" ] || { echo "::error::$p برمز $code"; exit 1; }
+          done
+
+      - name: إثبات نوع ملف PWA
+        run: |
+          type=$(curl -sI http://127.0.0.1/app/manifest.webmanifest | tr -d '\r' | grep -i '^content-type:' | awk '{print $2}')
+          echo "Content-Type: $type"
+          [ "$type" = "application/manifest+json" ] || { echo "::error::نوع ملف PWA غير صحيح"; exit 1; }
+
+  # ===========================================================================
+  # ٣. حزمة الإنتاج — تُبنى وتُفحص وتُرفَق
+  # ===========================================================================
+  package:
+    name: حزمة الإنتاج
+    runs-on: ubuntu-latest
+    needs: [unit, nginx]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, mbstring
+          coverage: none
+
+      - name: بناء الحزمة
+        run: php tools/build-release.php
+
+      - name: مطابقة رقم الإصدار في المواضع الأربعة
+        run: |
+          set -euo pipefail
+          v=$(php -r 'require "src/Core/Autoloader.php"; echo App\Config\ProjectConfig::VERSION;')
+          echo "الإصدار: $v"
+          grep -q "VERSION = '$v'" src/Config/ProjectConfig.php
+          grep -q "const VERSION = 'v$v'" sw.js
+          for f in css/app.css js/api.js js/store.js js/ui.js js/app.js; do
+            grep -q "?v=$v" "app/$f" || { echo "::error::app/$f لا يحمل ?v=$v"; exit 1; }
+          done
+          echo "الأرقام متزامنة"
+
+      - name: رفع الحزمة كأثر للبناء
+        uses: actions/upload-artifact@v4
+        with:
+          name: light-commerce-release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

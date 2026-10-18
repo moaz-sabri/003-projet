@@ -62,39 +62,37 @@ return function (): void {
     Assert::same([], $leaked, 'لا توجد أسرار أو مراجع لكلمة المرور في ملفات الواجهة');
 
     /* (4) حماية المسارات الحساسة ----------------------------------------- */
-    Assert::true(is_file(BASE_PATH . '/storage/.htaccess'), 'storage/.htaccess موجود');
-    Assert::true(is_file(BASE_PATH . '/src/.htaccess'), 'src/.htaccess موجود');
-    Assert::true(is_file(BASE_PATH . '/app/uploads/.htaccess'), 'app/uploads/.htaccess موجود');
-
-    $rootHtaccess = (string) file_get_contents(BASE_PATH . '/.htaccess');
-    Assert::contains($rootHtaccess, 'storage', 'قاعدة الجذر تحجب storage');
-    Assert::contains($rootHtaccess, 'src', 'قاعدة الجذر تحجب src');
-    Assert::contains($rootHtaccess, 'nosniff', 'ترويسة X-Content-Type-Options مضبوطة');
+    /*
+     * الحماية كلها الآن في إعداد nginx: لا ملفات .htaccess في القالب،
+     * ولا دعم لـ Apache. فما يهم هنا أن القواعد موجودة في كل مكان —
+     * فشل الاختبار هو ما يمنع اختلاف حاوية عن خادم مباشر.
+     * (التطابق التفصيلي في tests/suites/deploy.php)
+     */
+    foreach (['.htaccess', 'src/.htaccess', 'storage/.htaccess', 'app/uploads/.htaccess'] as $gone) {
+        Assert::false(is_file(BASE_PATH . '/' . $gone), $gone . ' لم يعد موجودًا');
+    }
 
     $nginx = (string) file_get_contents(BASE_PATH . '/docker/nginx.conf');
-    Assert::contains($nginx, 'location ~ ^/(src|storage|bin|tests|tools|docs|docker)(/|$)', 'nginx يحجب المسارات الحساسة');
+    $site  = (string) file_get_contents(BASE_PATH . '/deploy/nginx/site.conf');
+
+    Assert::contains($nginx, 'location ~ ^/(src|storage|bin|tests|tools|docs|docker|deploy)(/|$)', 'nginx يحجب المسارات الحساسة');
     Assert::contains($nginx, 'app/uploads/.*\\.(php', 'nginx يمنع تنفيذ السكربتات داخل مجلد الرفع');
+    Assert::contains($nginx, 'X-Content-Type-Options', 'nginx يضبط ترويسة nosniff');
 
     /*
-     * setup/ ليست محجوبة في أي بيئة، ولا في nginx:
-     *   - .htaccess لا يدرجها في المحظورات (ويحوّل /setup ← /setup/)
-     *   - bin/serve.php يشرح عمدًا أن حجبها يجعل التثبيت المحلي مستحيلًا
-     *   - nginx كان الوحيد الحاجب، وهو ما كسر التوثيق وميزة إعادة البناء
-     * فالمطلوب تطابق الثلاث، لا اختلافها. الاختلاف الصامت بين بيئات
-     * التطوير هو ما يجعل «نجح عندي» و«فشل عند المستخدم» بلا تفسير.
+     * setup/ ليست محجوبة في أي بيئة: التثبيت الأول يتم عبرها، والعودة
+     * إليها بعد تدمير النسخة تتطلّب مفتاحًا لا يعرفه إلا صاحب النسخة.
+     * (nginx كان الوحيد الحاجب — وكسر التوثيق وميزة إعادة البناء.)
      */
-    Assert::notContains($nginx, '|setup)(/|$)', 'nginx لا يحجب setup/ (تطابق مع .htaccess وbin/serve.php)');
+    Assert::notContains($nginx, '|setup)(/|$)', 'nginx لا يحجب setup/');
     Assert::contains($nginx, 'location = /setup/index.php', 'nginx يقدّم صفحة التهيئة عبر PHP-FPM');
     Assert::contains($nginx, 'location = /setup {', 'nginx يوجّه /setup إلى /setup/');
+    Assert::notContains($site, '|setup)(/|$)', 'إعداد الإنتاج لا يحجب setup/');
+    Assert::contains($site, 'location = /setup/index.php', 'إعداد الإنتاج يقدّم صفحة التهيئة');
     Assert::contains(
         (string) file_get_contents(BASE_PATH . '/bin/serve.php'),
         "'/setup/index.php'",
         'أداة التطوير تقدّم صفحة التهيئة أيضًا (تطابق مع nginx)'
-    );
-    Assert::notContains(
-        (string) file_get_contents(BASE_PATH . '/.htaccess'),
-        'docs|docker|setup)',
-        '.htaccess لا يحجب setup/ (تطابق مع nginx وbin/serve.php)'
     );
 
     /*
@@ -112,9 +110,6 @@ return function (): void {
         'issueRebuildKey',
         'التدمير ينتج مفتاح إعادة البناء'
     );
-
-    $uploadsHtaccess = (string) file_get_contents(BASE_PATH . '/app/uploads/.htaccess');
-    Assert::contains($uploadsHtaccess, 'php_flag engine off', 'تعطيل محرك PHP داخل مجلد الرفع');
 
     Assert::false(
         (bool) Database::value("SELECT COUNT(*) FROM sqlite_master WHERE name = 'admin_users'"),

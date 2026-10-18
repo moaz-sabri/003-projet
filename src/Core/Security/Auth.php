@@ -119,7 +119,7 @@ final class Auth
     {
         $configFile = app_config_file();
         $hash       = password_hash($newPassword, PASSWORD_DEFAULT);
-        $php        = "<?php\n// ملف إعدادات محلي — لا يُرفع إلى أي مستودع ولا يُخدم عبر الويب.\nreturn "
+        $php        = "<?php\n// ملف إعدادات محلي — لا يُرفع إلى أي مستودع ولا يُخدم عبر الويب.\n// الحماية من الوصول تأتي من إعداد nginx، لا من ملف داخل المجلد.\nreturn "
                     . var_export([
                         'installed_at' => date('c'),
                         'debug'        => false,

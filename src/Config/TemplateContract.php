@@ -122,8 +122,8 @@ final class TemplateContract
         ],
         [
             'key'  => 'outside_webroot',
-            'rule' => 'storage/ يجب ألا يكون قابلًا للوصول عبر الويب (htaccess أو نقله خارج public_html).',
-            'why'  => 'ملف app.sqlite فيه كل الطلبات وأسماء الزبائن. إبقاؤه تحت مسار الويب خطأ بنية لا خطأ إعداد.',
+            'rule' => 'ملفات البيانات (local.php · app.sqlite) داخل storage/، ولا بد من حجب storage/ بإعداد nginx أو نقلها خارج جذر الويب.',
+            'why'  => 'ملف app.sqlite فيه كل الطلبات وأسماء الزبائن. تركه في مسار الويب بلا قاعدة تحجبه خطأ بنية لا خطأ إعداد.',
         ],
         [
             'key'  => 'preset_shape',

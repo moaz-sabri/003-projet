@@ -52,8 +52,10 @@ $writeLocalConfig = static function (array $config) use ($say): void {
         mkdir($dir, 0775, true);
     }
     $php = "<?php\n"
-         . "// إعدادات محلية للنسخة — لا ترفع هذا الملف إلى أي مستودع ولا تخدمه عبر الويب.\n"
-         . "// إن نُشر على خادم عام، غيّر الصلاحيات وتأكد أن .htaccess يمنع الوصول المباشر.\n"
+         . "// إعدادات محلية للنسخة — لا تُرفع إلى أي مستودع ولا تُخدم عبر الويب.\n"
+         . "// الحماية من الوصول تأتي من إعداد nginx (deploy/nginx/site.conf)،\n"
+         . "// لا من ملف داخل المجلد. على استضافة لا تتيح تعديل الإعدادات،\n"
+         . "// استخدم: php tools/move-outside-webroot.php --yes\n"
          . "return " . var_export($config, true) . ";\n";
     file_put_contents($dir . '/local.php', $php, LOCK_EX);
     \App\Core\StorageWriter::fixOwnership($dir . '/local.php', 0640);
