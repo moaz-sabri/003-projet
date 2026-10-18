@@ -13,9 +13,21 @@
 #   docker exec light-commerce php bin/console seed:demo
 #   docker compose down
 #
-# ملاحظة: نستخدم volumes مُسمّاة (لا bind mount) لمجلد storage عمدًا.
-#   الربط بمجلد المضيف كان يُدخل ملف إعدادات محليًا بمسارات Windows
-#   داخل الحاوية، فتتعطّل قاعدة البيانات. الـ volumes معزولة ونظيفة.
+# ملاحظة: الشيفرة **مربوطة من المضيف** (bind mount) بينما الحالة معزولة
+#   في volumes مُسمّاة. الفصل بينهما مقصود:
+#
+#   • storage/ و app/uploads/ ← volumes مُسمّاة (معزولة عن المضيف)
+#     لأن ربطهما من Windows كان يُدخل مسارات Windows داخل local.php
+#     فتتعطّل قاعدة البيانات. هنا يبقى الملف داخل الحاوية نظيفًا.
+#
+#   • بقية المشروع ← bind mount
+#     لأن Dockerfile ينفّذ COPY . /var/www/html، فالشيفرة مثبَّتة داخل
+#     الصورة عند البناء. بدون هذا الربط، كل تعديل على المضيف يبقى
+#     مجهولًا للحاوية حتى إعادة البناء — فتُطوَّر على 1.4.0 وأنت تختبر
+#     1.2.0 دون أي رسالة خطأ.
+#
+#   الترتيب هنا للقراءة فقط: في Docker يربح المسار الأعمق، فيُركَّب
+#   volume storage فوق الربط ولا يظهر محتوى مجلد storage على المضيف إطلاقًا.
 # =============================================================================
 
 services:
@@ -27,6 +39,7 @@ services:
     ports:
       - "8080:80"
     volumes:
+      - .:/var/www/html
       - storage-data:/var/www/html/storage
       - uploads-data:/var/www/html/app/uploads
     environment:

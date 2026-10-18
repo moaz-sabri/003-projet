@@ -33,6 +33,7 @@
     locations: [],
     statuses: [],
     stats: {},
+    instance: null,
     refreshTimer: null,
     modalSubmit: null,
     orderFilters: { status: '', location_id: '', q: '', date: '' },
@@ -1119,6 +1120,183 @@
     function infoBox(k, v) {
       return '<div class="detail-box"><div class="k">' + escapeHtml(k) + '</div><div class="v">' + escapeHtml(v) + '</div></div>';
     }
+
+    if (CFG.rebuild) loadInstance();
+  }
+
+  /* ==================================================================
+     منطقة الخطر — تدمير النسخة والعودة إلى نقطة الصفر
+     ==================================================================
+     ثلاث خطوات لا يمكن تجاوز أي منها، وكل واحدة تُعيد الاستعلام قبل
+     التالي: نعرض ما سيُحذف، ثم نطلب العبارة، ثم كلمة المرور. لا يوجد
+     زر واحد يفجر كل شيء — لأن الفأرة تنقر في الثانية نفسها.
+     ================================================================== */
+
+  function loadInstance() {
+    var container = $('instance-state');
+    if (!container) return;
+
+    return api('admin.instance.state').then(function (data) {
+      state.instance = data;
+
+      if (!data.installed) {
+        container.innerHTML = infoLine('الحالة', 'غير مهيأة — بانتظار أول بناء');
+        $('instance-destroy').disabled = true;
+        return;
+      }
+
+      var c = data.counts;
+      container.innerHTML = [
+        infoLine('الطلبات', String(c.orders)),
+        infoLine('المنتجات', String(c.products)),
+        infoLine('التصنيفات', String(c.categories)),
+        infoLine('المواقع', String(c.locations)),
+        infoLine('حجم القاعدة', data.sizes.database),
+        infoLine('حجم الصور', data.sizes.uploads)
+      ].join('');
+    }).catch(function (error) {
+      // 404 = الميزة غير مفعّلة في هذه النسخة: نخفي المنطقة بدل إظهار زر لا يعمل.
+      if (error.code === 'disabled') {
+        var panel = container.closest('.panel-danger');
+        if (panel) panel.hidden = true;
+        return;
+      }
+      toast(error.message, 'error');
+    });
+
+    function infoLine(k, v) {
+      return '<div class="detail-box"><div class="k">' + escapeHtml(k) +
+        '</div><div class="v">' + escapeHtml(v) + '</div></div>';
+    }
+  }
+
+  /** ما الذي سيُحذف — القائمة تُعرض قبل التأكيد لا بعده. */
+  function destroyPlan(data) {
+    var c = data.counts;
+    return '' +
+      item(c.orders + ' طلبًا') +
+      item(c.products + ' منتجًا و ' + c.categories + ' تصنيفًا') +
+      item(c.locations + ' موقعًا ورموزه المطبوعة') +
+      item('كل الصور المرفوعة (' + data.sizes.uploads + ')') +
+      item('بيانات الدخول ومفتاح التطبيق ورابط الموقع') +
+      item('كل النسخ الاحتياطية (' + data.sizes.backups + ')') +
+      item('<code>' + escapeHtml(data.paths.database) + '</code>') +
+      item('<code>' + escapeHtml(data.paths.config) + '</code>') +
+      item('<code>' + escapeHtml(data.paths.company) + '</code>') +
+      '<div class="danger-note"><strong>لا يُحذف القالب.</strong> تبقى الشيفرة ' +
+      'والواجهة واللوحة كما هي، وتعود النسخة إلى ما قبل أول تهيئة لتُبنى ' +
+      'من جديد بنشاط مختلف تمامًا.</div>';
+
+    function item(html) { return '<li>' + html + '</li>'; }
+  }
+
+  function destroyInstance() {
+    var data = state.instance;
+    if (!data || !data.installed) {
+      toast('لا توجد نسخة مهيأة لتدميرها.', 'warn');
+      return;
+    }
+
+    // نافذة مستقلة عن openModal/ submitModal: مسار التدمير يفتح نافذة
+    // جديدة بعد نجاحه، ودورة حفظ النافذة المشتركة كانت تُعيد ضبط الزر
+    // وتُغلق ما فتحناه. هنا نتحكم نحن في كل شيء.
+    openModal('تدمير النسخة والعودة للبداية',
+      '<ul class="danger-list">' + destroyPlan(data) + '</ul>' +
+      '<p class="danger-field-label">لتأكيد الحذف، اكتب كلمة: ' +
+      '<code>' + escapeHtml(data.confirm_word) + '</code></p>' +
+      '<input type="text" id="destroy-confirm" autocomplete="off" ' +
+      'placeholder="' + escapeHtml(data.confirm_word) + '">' +
+      '<div class="field" style="margin-top:14px">' +
+      '<label for="destroy-password">كلمة مرور المدير (للتأكيد)</label>' +
+      '<input type="password" id="destroy-password" autocomplete="current-password">' +
+      '</div>' +
+      '<label class="danger-check"><input type="checkbox" id="destroy-archive" checked>' +
+      '<span>حفظ نسخة أمان قبل الحذف في <code>storage/destroyed/</code></span></label>',
+      null
+    );
+
+    wireModalButton('تدمير نهائي', 'btn btn-danger', submitDestroy);
+
+    // Enter في حقل كلمة المرور ينفّذ التأكيد — السلوك المتوقع في نموذج.
+    $('destroy-password').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') submitDestroy();
+    });
+
+    function submitDestroy() {
+      var word  = ($('destroy-confirm').value || '').trim();
+      var pass  = $('destroy-password').value;
+      var keep  = $('destroy-archive').checked;
+
+      // تحقق في الواجهة أيضًا: يمنع رحلة مكلفة بلا نتيجة، ويجعل
+      // سبب الرفض واضحًا قبل أن يصل الطلب إلى الخادم.
+      if (word !== data.confirm_word) {
+        toast('عبارة التأكيد غير مطابقة. لم يُحذف شيء.', 'error');
+        return;
+      }
+      if (!pass) {
+        toast('أدخل كلمة مرور المدير.', 'error');
+        return;
+      }
+
+      var btn = $('modal-save');
+      setLoading(btn, true, 'جارٍ التدمير…');
+
+      api('admin.instance.destroy', {
+        method: 'POST',
+        body: { confirm: word, password: pass, archive: keep ? '1' : '0' }
+      }).then(function (result) {
+        // بعد النجاح لا شيء مما كان في الشاشة صحيحًا: أوقف المؤقتات
+        // قبل فتح نافذة النتيجة، وإلا حاول طلبًا على قاعدة محذوفة.
+        stopAutoRefresh();
+        showDestroyed(result);
+      }).catch(function (error) {
+        toast(error.message, 'error');
+        setLoading(btn, false);
+      });
+    }
+  }
+
+  /** يضبط زر النافذة لمهمة واحدة مع إعادة الحالة الأصلية عند الفتح. */
+  function wireModalButton(label, className, handler) {
+    var btn = $('modal-save');
+    btn.className = className;
+    btn.textContent = label;
+    btn.disabled = false;
+    btn.removeAttribute('is-loading');
+    btn.onclick = handler;
+  }
+
+  /** ما بعد التدمير: إمّا البناء الجديد، أو تنبيه صريح إن كانت الصفحة محذوفة. */
+  function showDestroyed(result) {
+    var removed = (result.removed || []).length;
+
+    openModal('انتهت هذه النسخة',
+      '<div class="alert err"><strong>تم تدمير النسخة.</strong> حُذف ' + removed +
+      ' عنصرًا، والموقع الآن في حالة ما قبل أول تهيئة.</div>' +
+      (result.archive
+        ? '<div class="alert ok" style="margin-top:12px">نسخة الأمان: <code>' +
+          escapeHtml(result.archive) + '</code> — تحتفظ بقاعدة البيانات وبيانات ' +
+          'الدخول إن احتجت الاسترجاع.</div>'
+        : '<div class="alert warn" style="margin-top:12px">طلبتَ الحذف بلا نسخة أمان. ' +
+          'لا سبيل للاسترجاع.</div>') +
+      (result.rebuild_url
+        ? '<div class="danger-note" style="margin-top:14px"><strong>احفظ رابط البناء ' +
+          'الجديد — لن يُعرض مرة أخرى.</strong><br><code style="word-break:break-all">' +
+          escapeHtml(result.rebuild_url) + '</code><br>بدونه تبقى صفحة التهيئة مقفلة، ' +
+          'والمفتاح في حال ضياعه: <code>php bin/console instance state</code>.</div>'
+        : '<div class="danger-note" style="margin-top:14px">لم يُحفظ رابط للنسخة، فابنِ ' +
+          'من الطرفية: <code>php bin/console install --url=… --user=… --pass="…"</code>.</div>'),
+      null
+    );
+
+    wireModalButton(
+      result.rebuild_url ? 'ابدأ البناء من جديد' : 'إغلاق',
+      'btn btn-primary',
+      function () {
+        global.location.href = result.rebuild_url
+          || (CFG.setup_ready ? CFG.setup : CFG.home);
+      }
+    );
   }
 
   function changePassword(event) {
@@ -1200,6 +1378,19 @@
     $('modal-title').textContent = title;
     $('modal-form').innerHTML = html;
     state.modalSubmit = onSave;
+
+    /*
+     * يُعاد ضبط زر الحفظ هنا في كل فتح. نافذة التدمير تستبدل onclick
+     * بمعالجها الخاص (لأنها تفتح نافذة أخرى بعد نجاحها)، فلو بقي
+     * المعالج القديم لاشتغل مع أي نافذة عادية تُفتح بعدها — بل وحتى
+     * لونها الأحمر واسمها «تدمير نهائي» كانا سيبقيان.
+     */
+    var save = $('modal-save');
+    save.onclick = null;
+    save.className = 'btn btn-primary';
+    save.disabled = false;
+    save.textContent = 'حفظ';
+
     $('modal-backdrop').hidden = false;
     var first = $('modal-form').querySelector('input, select, textarea');
     if (first) first.focus();
@@ -1266,6 +1457,8 @@
     $('product-new').addEventListener('click', function () { editProduct(null); });
     $('location-new').addEventListener('click', function () { editLocation(null); });
     $('backup-create').addEventListener('click', createBackup);
+    // الزر غير موجود أصلًا إن كانت الميزة غير مفعّلة (انظر admin/index.php).
+    if ($('instance-destroy')) $('instance-destroy').addEventListener('click', destroyInstance);
     $('password-form').addEventListener('submit', changePassword);
     $('print-qr').addEventListener('click', function () {
       global.open(CFG.api + '?r=admin.qr.sheet', '_blank');

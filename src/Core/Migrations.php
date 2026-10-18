@@ -149,6 +149,8 @@ final class Migrations
         );
 
         self::ensureColumns();
+        self::validateFieldDefinitions();
+        self::backfillExtraFields();
         self::seedSettings();
         self::seedCategories();
     }
@@ -156,6 +158,11 @@ final class Migrations
     /**
      * يضيف الأعمدة الناقصة على قواعد أُنشئت بإصدار أقدم.
      * (بديل خفيف عن أداة ترحيل كاملة، كافٍ لهذا المشروع)
+     *
+     * ملاحظة: كل عمود يُضاف بـ NOT NULL DEFAULT، فيقرأ SQLite هذه القيمة
+     * للصفوف الموجودة مسبقًا — أي أن «العناصر السابقة تأخذ القيمة الافتراضية»
+     * مضمونة هنا على مستوى المخطط نفسه. تغطية ذلك على مستوى الحقول القابلة
+     * للتوسيع (extra_json) في backfillExtraFields().
      */
     private static function ensureColumns(): void
     {
@@ -203,6 +210,109 @@ final class Migrations
                     Database::pdo()->exec('ALTER TABLE ' . $table . ' ADD COLUMN ' . $name . ' ' . $definition);
                 }
             }
+        }
+    }
+
+    /**
+     * يرفض أي تعريف حقل يستخدم نوعًا خارج المجموعة المغلقة.
+     *
+     * فشل الترحيل هنا مقصود: تعريف بنوع مجهول يعني أن التحقق سيقبل قيمة
+     * بلا فحص، أو أن العرض سيعاملها كـ text بينما خُزِّنت كغير ذلك.
+     * الأفضل أن يوقف التحديث الآن على خطأ صريح، من أن يقبل بناءً يخلط
+     * بين الطبقات الأربع التي يربطها كل نوع حقل.
+     *
+     * @throws \RuntimeException
+     */
+    private static function validateFieldDefinitions(): void
+    {
+        $contract = \App\Config\TemplateContract::class;
+
+        try {
+            $contract::assertFieldTypes(\App\Config\ProjectConfig::productExtraFields(), 'PRODUCT_EXTRA_FIELDS');
+            $contract::assertFieldTypes(\App\Config\ProjectConfig::productDetailFields(), 'PRODUCT_DETAIL_FIELDS');
+
+            $where = 'ORDER_TYPES';
+            foreach (\App\Config\ProjectConfig::orderTypes() as $key => $def) {
+                $contract::assertFieldTypes((array) ($def['fields'] ?? []), $where . '[' . $key . ']');
+            }
+        } catch (\InvalidArgumentException $e) {
+            throw new \RuntimeException(
+                'تعذّر تحديث المخطط: ' . $e->getMessage()
+                . ' — أنواع الحقول مجموعة مغلقة في القالب، وتغييرها يحتاج إصدار قالب جديد.',
+                0,
+                $e
+            );
+        }
+    }
+
+    /**
+     * يملأ الحقول الإضافية الجديدة بالقيمة الافتراضية المعرّفة في القالب.
+     *
+     * ## المشكلة التي تحلّها
+     *
+     * الحقول الإضافية تُخزَّن في products.extra_json لا في أعمدة، فهذا
+     * يجعل إضافتها مجانية بلا ترحيل. لكنها تخلق حالة قدسية: منتج أُضيف
+     * قبل إضافة الحقل «الضمان» لا يحمل مفتاحه إطلاقًا. كل قارئ بعد ذلك
+     * يرى مفتاحًا غائبًا بدل سلسلة فارغة، فيعرض الحقل بصورة مختلفة حسب
+     * المنتج — وهو فشل صامت لا يظهر إلا في عيّنة من البيانات.
+     *
+     * ## القاعدة
+     *
+     * العنصر القديم يأخذ **قيمة الحقل الافتراضية كما مُعرِّفة في القالب**
+     * (المفتاح 'default' عبر TemplateContract::fieldDefault). لا تخمين ولا
+     * ترك فراغ: القيمة الفارغة صريحة ومقصودة، فيعرف النموذج أن الحقل
+     * موجود ويعرضه فارغًا لا غائبًا.
+     *
+     * وبالمقابل: **لا تُلمس اللقطات التاريخية إطلاقًا** — order_items و
+     * orders.fields_json سجلّ لما وقّعه الزبون فعلًا. تعديل سعر أو اسم اليوم
+     * لا يجوز أن يغيّر سجل الأمس.
+     */
+    private static function backfillExtraFields(): void
+    {
+        $fields = \App\Config\ProjectConfig::productExtraFields();
+        if ($fields === []) {
+            return;
+        }
+
+        $rows = Database::all('SELECT id, extra_json FROM products');
+        $updated = 0;
+
+        foreach ($rows as $row) {
+            $extra = json_decode((string) $row['extra_json'], true);
+            if (!is_array($extra)) {
+                $extra = [];
+            }
+
+            $missing = false;
+            foreach ($fields as $field) {
+                $key = (string) ($field['key'] ?? '');
+                if ($key === '' || array_key_exists($key, $extra)) {
+                    continue;
+                }
+                $extra[$key] = \App\Config\TemplateContract::fieldDefault($field);
+                $missing      = true;
+            }
+
+            if (!$missing) {
+                continue;
+            }
+
+            // الحقول الفارغة تُحذف عند التصدير حتى يبقى extra_json
+            // بحجمه الأدنى، ويظل الفارق بين «غير معرّف» و«فارغ» واضحًا
+            // في القاعدة: المفتاح الغائب يعني منتجًا أقدم من الحقل.
+            $extra = array_filter($extra, static fn(mixed $v): bool => $v !== '' && $v !== null);
+
+            Database::update(
+                'products',
+                ['extra_json' => json_encode($extra, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}'],
+                'id = :id',
+                ['id' => (int) $row['id']]
+            );
+            $updated++;
+        }
+
+        if ($updated > 0) {
+            Logger::info('Backfilled extra fields for ' . $updated . ' product(s)');
         }
     }
 

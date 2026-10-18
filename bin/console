@@ -9,7 +9,8 @@ declare(strict_types=1);
  *        --preset=restaurant --name="مطعم النور"
  *   php bin/console migrate
  *   php bin/console migrate:fresh
- *   php bin/console admin:password
+ *   php bin/console instance state
+ *   php bin/console instance destroy --force
  *   php bin/console preset [list|show|apply <المعرّف>]
  *   php bin/console backup
  *   php bin/console icons
@@ -453,6 +454,126 @@ switch ($command) {
         exit($result['state'] === 'critical' ? 1 : 0);
     }
 
+    /* ------------------ دورة حياة النسخة: تدمير وبناء جديد ------------------ */
+    case 'instance': {
+        $action = $argv[2] ?? 'state';
+        $service = new \App\Services\InstanceService();
+
+        if ($action === 'state') {
+            $state = $service->state();
+            $say('حالة النسخة: ' . ($state['installed'] ? 'مهيأة' : 'غير مهيأة (قبل أول بناء)'), $state['installed'] ? 'ok' : 'warn');
+            $say('إصدار القالب: ' . $state['template_version']);
+            if ($state['installed']) {
+                /*
+                 * bootstrap يقرأ نوع النشاط المحفوظ ويطبّقه. بدونه يُرجع
+                 * ProjectConfig الثابت الافتراضي (restaurant) بدل النوع
+                 * الحقيقي للنسخة — فيُظهر التقرير نوعًا لم تختره.
+                 */
+                require_once BASE_PATH . '/src/bootstrap.php';
+                $state = $service->state();
+                $say('نوع النشاط  : ' . ($state['preset'] ?? '؟')
+                    . ' (' . \App\Config\ProjectConfig::presetId() . ')');
+                $say('الوضع        : ' . (\App\Config\ProjectConfig::hasOrdering()
+                    ? 'مع نظام الطلبات' : 'عرض فقط — بلا سلة ولا طلبات'));
+                $say('رابط الموقع : ' . ($state['base_url'] ?? '؟'));
+                foreach ($state['counts'] as $table => $n) {
+                    $say('  ' . str_pad($table, 12) . ': ' . $n);
+                }
+                $say('أحجام: قاعدة ' . $state['sizes']['database']
+                    . ' · صور ' . $state['sizes']['uploads']
+                    . ' · نسخ ' . $state['sizes']['backups']);
+            }
+            $say('ملف الإعدادات: ' . $state['paths']['config']);
+            $say('صفحة التهيئة : ' . ($state['setup_available'] ? 'موجودة' : 'محذوفة — أعد رفع مجلد setup/ للبناء من جديد'));
+
+            if ($key = $service->rebuildKey()) {
+                $say('');
+                $say('إعادة البناء مقفلة بمفتاح. الرابط الكامل:', 'head');
+                $base = rtrim((string) app_config('app.base_url', ''), '/');
+                $say('  ' . ($base !== '' ? $base : '<نطاقك>') . '/setup/index.php?key=' . $key, 'ok');
+            } elseif ($service->rebuildPending()) {
+                $say('');
+                $say('النسخة مدمَّرة وصفحة التهيئة مقفلة (لا مفتاح محفوظ).', 'warn');
+                $say('لتنفيذ مفتاح جديد: php bin/console instance destroy --force', 'warn');
+            }
+            if ($state['archives'] !== []) {
+                $say('');
+                $say('نسخ الأمان السابقة:', 'head');
+                foreach ($state['archives'] as $archive) {
+                    $say('  ' . $archive['date'] . '  ' . \App\Services\InstanceService::ARCHIVE_DIR
+                        . '/' . $archive['name']);
+                }
+            }
+            exit(0);
+        }
+
+        if ($action === 'destroy') {
+            if (!isset($options['force'])) {
+                $say('هذا الأمر يمحو النسخة بالكامل بلا رجعة: البيانات والإعدادات والصور', 'warn');
+                $say('والنسخ الاحتياطية. تُؤخذ نسخة أمان أولًا في ' . \App\Services\InstanceService::ARCHIVE_DIR . '/.', 'warn');
+                $say('');
+                $say('للتأكيد أعِد الأمر مع --force:', 'warn');
+                $say('    php bin/console instance destroy --force', 'warn');
+                exit(1);
+            }
+            /*
+             * الشرط ليس «مهيأة» فحسب: نسخة مدمّرة بلا مفتاح (دمّرها
+             * إصدار سابق للميزة) هي أيضًا حالة موجودة، وتدميرها هو
+             * المخرج الوحيد لتدوير مفتاح ضائع. فنسأل عن وجود أي أثر
+             * للنسخة، لا عن اكتمال تهيئتها.
+             */
+            if (!$service->isInstalled() && !$service->rebuildPending()) {
+                $say('لا توجد نسخة لتدميرها — يبدو أن هذه نسخة جديدة لم تُبنَ بعد.', 'warn');
+                $say('للبناء الأول: php bin/console install --url=... --user=... --pass="…"', 'warn');
+                exit(1);
+            }
+
+            require_once BASE_PATH . '/src/bootstrap.php';
+
+            try {
+                $report = $service->destroy('', [
+                    'confirm'      => \App\Services\InstanceService::CONFIRM_WORD,
+                    'archive'      => !isset($options['no-archive']),
+                    'keep_backups' => isset($options['keep-backups']),
+                ]);
+            } catch (\Throwable $e) {
+                $say($e->getMessage(), 'err');
+                exit(1);
+            }
+
+            $say('تم تدمير النسخة.', 'warn');
+            $say('حُذف ' . count($report['removed']) . ' عنصرًا. محتواها:');
+            foreach (array_slice($report['removed'], 0, 20) as $item) {
+                $say('  - ' . $item);
+            }
+            if (count($report['removed']) > 20) {
+                $say('  … و ' . (count($report['removed']) - 20) . ' عنصرًا آخر');
+            }
+            if ($report['archive'] !== '') {
+                $say('');
+                $say('نسخة الأمان: ' . $report['archive'], 'ok');
+            }
+            $say('');
+            $say('مفتاح إعادة البناء: ' . $report['rebuildKey'], 'ok');
+            if (!empty($report['rebuildUrl'])) {
+                $say('رابط البناء الجديد:');
+                $say('  ' . $report['rebuildUrl'], 'ok');
+            } else {
+                $say('لا رابط محفوظ للنسخة، فافتح على نطاقك:', 'warn');
+                $say('  setup/index.php?key=' . $report['rebuildKey']);
+            }
+            $say('');
+            $say('الخطوة التالية — البناء من جديد:', 'head');
+            $say('  ١) افتح الرابط أعلاه — مفتاحه إلزامي، وبدونه الصفحة مقفلة.');
+            $say('  ٢) أو من الطرفية مباشرة (لا تحتاج مفتاحًا):');
+            $say('     php bin/console install --url=... --user=... --pass="…" --preset=<النوع>');
+            exit(0);
+        }
+
+        $say('استخدام: php bin/console instance [state|destroy --force]', 'err');
+        exit(1);
+    }
+
     default:
         echo <<<TXT
         أداة القالب التجاري الخفيف
@@ -462,6 +583,9 @@ switch ($command) {
                   [--preset=<نوع>] [--name=...] [--tagline=...]
           migrate                                   تحديث مخطط قاعدة البيانات
           migrate:fresh                             حذف كل البيانات وإعادة الإنشاء
+          instance state                            حالة النسخة وما سيُحذف
+          instance destroy --force                  تدمير النسخة والعودة للبداية
+                  [--no-archive] [--keep-backups]
           admin:password --pass=...                 تعيين كلمة مرور المدير
           preset list|show|apply <المعرّف>         عرض أو تغيير نوع النشاط والوضع
           backup                                    إنشاء نسخة احتياطية

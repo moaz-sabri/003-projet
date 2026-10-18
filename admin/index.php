@@ -286,6 +286,29 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
         <div class="panel-head"><h3>معلومات النسخة</h3></div>
         <div class="info-grid" id="version-info"></div>
       </div>
+
+      <?php if (ProjectConfig::feature('admin_rebuild')): ?>
+        <!--
+          منطقة الخطر: تدمير النسخة والعودة إلى نقطة الصفر.
+          لا يمكن تعطيلها — نسألها ونعرف ذلك، ولا نُظهرها ثم نُخفيها.
+        -->
+        <div class="panel panel-danger">
+          <div class="panel-head">
+            <h3>إعادة البناء من الصفر</h3>
+            <span class="panel-tag">لا رجعة فيه</span>
+          </div>
+          <div class="panel-note">
+            يمحو هذه النسخة بالكامل ويعيد الموقع إلى ما قبل أول تهيئة، ثم تبني
+            من جديد بنشاط مختلف. <strong>القالب لا يُحذف</strong> — البيانات فقط.
+          </div>
+          <div class="info-grid" id="instance-state"></div>
+          <div class="panel-foot">
+            <button class="btn btn-danger" id="instance-destroy" type="button">
+              تدمير النسخة والعودة للبداية
+            </button>
+          </div>
+        </div>
+      <?php endif; ?>
     </section>
   </main>
 </div>
@@ -340,10 +363,13 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
 <script type="application/json" id="app-config"><?= json_encode([
     'api'          => Paths::api(1),
     'home'         => $homeUrl,
+    'setup'        => Paths::url('setup/index.php', 1),
+    'setup_ready'  => is_file(__DIR__ . '/../setup/index.php'),
     'csrf'         => Auth::token(),
     'authenticated'=> $authenticated,
     'username'     => Auth::username(),
     'version'      => $version,
+    'rebuild'      => ProjectConfig::feature('admin_rebuild'),
 ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script src="assets/admin.js?v=<?= (int) @filemtime(__DIR__ . '/assets/admin.js') ?>"></script>
 </body>

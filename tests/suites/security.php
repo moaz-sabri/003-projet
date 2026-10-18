@@ -72,8 +72,46 @@ return function (): void {
     Assert::contains($rootHtaccess, 'nosniff', 'ترويسة X-Content-Type-Options مضبوطة');
 
     $nginx = (string) file_get_contents(BASE_PATH . '/docker/nginx.conf');
-    Assert::contains($nginx, 'location ~ ^/(src|storage|bin|tests|tools|docs|docker|setup)(/|$)', 'nginx يحجب المسارات الحساسة');
+    Assert::contains($nginx, 'location ~ ^/(src|storage|bin|tests|tools|docs|docker)(/|$)', 'nginx يحجب المسارات الحساسة');
     Assert::contains($nginx, 'app/uploads/.*\\.(php', 'nginx يمنع تنفيذ السكربتات داخل مجلد الرفع');
+
+    /*
+     * setup/ ليست محجوبة في أي بيئة، ولا في nginx:
+     *   - .htaccess لا يدرجها في المحظورات (ويحوّل /setup ← /setup/)
+     *   - bin/serve.php يشرح عمدًا أن حجبها يجعل التثبيت المحلي مستحيلًا
+     *   - nginx كان الوحيد الحاجب، وهو ما كسر التوثيق وميزة إعادة البناء
+     * فالمطلوب تطابق الثلاث، لا اختلافها. الاختلاف الصامت بين بيئات
+     * التطوير هو ما يجعل «نجح عندي» و«فشل عند المستخدم» بلا تفسير.
+     */
+    Assert::notContains($nginx, '|setup)(/|$)', 'nginx لا يحجب setup/ (تطابق مع .htaccess وbin/serve.php)');
+    Assert::contains($nginx, 'location = /setup/index.php', 'nginx يقدّم صفحة التهيئة عبر PHP-FPM');
+    Assert::contains($nginx, 'location = /setup {', 'nginx يوجّه /setup إلى /setup/');
+    Assert::contains(
+        (string) file_get_contents(BASE_PATH . '/bin/serve.php'),
+        "'/setup/index.php'",
+        'أداة التطوير تقدّم صفحة التهيئة أيضًا (تطابق مع nginx)'
+    );
+    Assert::notContains(
+        (string) file_get_contents(BASE_PATH . '/.htaccess'),
+        'docs|docker|setup)',
+        '.htaccess لا يحجب setup/ (تطابق مع nginx وbin/serve.php)'
+    );
+
+    /*
+     * حارس إعادة البناء: لأن الصفحة مفتوحة، لا بد أن يُقفل نموذج
+     * إعادة التهيئة بمفتاح ينشئه التدمير — وإلا صار فتح الرابط
+     * وتعيين كلمة مرور جديدة باب استيلاء على الموقع.
+     */
+    Assert::contains(
+        (string) file_get_contents(BASE_PATH . '/setup/index.php'),
+        'checkRebuildKey',
+        'صفحة التهيئة تفرض مفتاح إعادة البناء'
+    );
+    Assert::contains(
+        (string) file_get_contents(BASE_PATH . '/src/Services/InstanceService.php'),
+        'issueRebuildKey',
+        'التدمير ينتج مفتاح إعادة البناء'
+    );
 
     $uploadsHtaccess = (string) file_get_contents(BASE_PATH . '/app/uploads/.htaccess');
     Assert::contains($uploadsHtaccess, 'php_flag engine off', 'تعطيل محرك PHP داخل مجلد الرفع');

@@ -33,6 +33,9 @@ final class ExposureCheck
         'storage/database/app.sqlite' => 'قاعدة البيانات (كل الطلبات وأسماء الزبائن)',
         'storage/config/local.php'    => 'ملف بيانات الدخول (تجزئة كلمة مرور المدير)',
         'storage/backups/backup'      => 'النسخ الاحتياطية (نسخة كاملة من البيانات)',
+        // نسخة أمان التدمير: تحوي القاعدة + بيانات الدخول معًا، فتسريبها
+        // أخطر من تسريب القاعدة نفسها — لأنها تبقى بعد محو النسخة.
+        'storage/destroyed/app.sqlite' => 'نسخ أمان التدمير (قاعدة + بيانات دخول)',
         'src/bootstrap.php'           => 'شيفرة الخادم',
         'src/Config/ProjectConfig.php' => 'إعدادات البنية',
         'bin/console'                 => 'أداة الطرفية',
@@ -47,6 +50,7 @@ final class ExposureCheck
         'storage/database/app.sqlite',
         'storage/config/local.php',
         'storage/backups/backup',
+        'storage/destroyed/app.sqlite',
         'setup.zip',
     ];
 

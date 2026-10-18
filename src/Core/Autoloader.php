@@ -56,6 +56,43 @@ function app_config_file(): string
 
 $appConfigFile = app_config_file();
 
+/**
+ * عدد المستويات التي يجب صعودها من مجلد السكربت الحالي ليصل إلى جذر الموقع.
+ *
+ * يُستخدم لبناء رابط صفحة التهيئة من أي سكربت، فلا ينكسر التوجيه على
+ * جذر النطاق ولا داخل مجلد فرعي ولا على مشروع وُضع في مجلد اسمه «admin».
+ *
+ * ## لماذا ليست قاعدة "عدد المجلدات"؟
+ *
+ * لأن SCRIPT_NAME وحده لا يحسمها: في تثبيت على /shop/ يكون
+ * /shop/index.php هو الجذر (0 مستويات) بينما /shop/api/index.php داخله
+ * (مستوى واحد). وعدّ الأجزاء يعطي 1 في الأولى — فيقفز التوجيه فوق
+ * جذر المشروع ويطلب /setup/index.php بدل /shop/setup/index.php.
+ *
+ * ## القاعدة
+ *
+ * كل نقطة دخول في القالب إما index.php على الجذر، وإما في مجلد واحد
+ * من مجلداته المعروفة (admin · api · setup · bin · tools · tests).
+ * فنصعد مستوى واحدًا إن كان المجلد الأخير من مسار السكربت موجودًا فعلًا
+ * داخل جذر المشروع على القرص، وإلا فالسكربت على الجذر مباشرة.
+ *
+ * @return int 0 أو 1
+ */
+function setupLinkLevelsUp(): int
+{
+    $script = (string) ($_SERVER['SCRIPT_NAME'] ?? '');
+    if ($script === '' || $script[0] !== '/') {
+        return 0; // CLI أو إعداد غير معتاد — الجذر
+    }
+
+    $dir = rtrim(str_replace('\\', '/', dirname($script)), '/');
+    if ($dir === '' || $dir === '/') {
+        return 0;
+    }
+
+    return is_dir(BASE_PATH . '/' . basename($dir)) ? 1 : 0;
+}
+
 /*
  * الثابت LC_IN_SETUP تعرّفه صفحة التهيئة نفسها قبل تحميل هذا الملف:
  * هي الوجهة الوحيدة التي يوجّه إليها هذا الملف عند غياب الإعدادات، فتحتاج
@@ -63,9 +100,18 @@ $appConfigFile = app_config_file();
  */
 if (!is_file($appConfigFile)) {
     if (PHP_SAPI !== 'cli' && !defined('LC_IN_SETUP')) {
-        // توجيه إلى معالج التهيئة بدل أي خطأ غامض
+        /*
+         * توجيه إلى معالج التهيئة بدل أي خطأ غامض.
+         *
+         * المسار يجب أن يكون مطلقًا لا نسبيًا: التوجيه النسبي
+         * ("setup/index.php") يُفسّره المتصفح نسبةً إلى مجلد السكربت
+         * الحالي، فمن /admin/index.php صار إلى /admin/setup/index.php
+         * أي 404. ولم يظهر الخلل إلا لأن غياب الإعدادات كان نادرًا —
+         * أما الآن فقد صار حالة طبيعية متكررة: بعد تدمير النسخة (انظر
+         * App\Services\InstanceService) يعود الموقع إلى هنا عمدًا.
+         */
         if (!headers_sent()) {
-            header('Location: setup/index.php');
+            header('Location: ' . App\Core\Web\Paths::url('setup/index.php', setupLinkLevelsUp()));
         }
         echo '<!DOCTYPE html><meta charset="utf-8"><title>التهيئة</title>'
            . '<p style="font-family:sans-serif;direction:rtl;text-align:center;padding:40px">'

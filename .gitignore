@@ -13,6 +13,7 @@
 /storage/database/*.sqlite
 /storage/database/*.sqlite-*
 /storage/backups/*
+/storage/destroyed/*
 /storage/logs/*
 /storage/tmp/*
 

@@ -75,6 +75,15 @@ final class Assert
         );
     }
 
+    public static function startsWith(string $haystack, string $prefix, string $message): void
+    {
+        self::record(
+            str_starts_with($haystack, $prefix),
+            $message,
+            'expected to start with: ' . $prefix
+        );
+    }
+
     public static function greater(int|float $actual, int|float $limit, string $message): void
     {
         self::record($actual > $limit, $message, 'expected > ' . $limit . ', got ' . $actual);

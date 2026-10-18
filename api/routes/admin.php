@@ -24,6 +24,7 @@ use App\Repositories\OrderRepository;
 use App\Repositories\ProductRepository;
 use App\Services\BackupService;
 use App\Services\CatalogService;
+use App\Services\InstanceService;
 use App\Services\OrderService;
 use App\Services\QrService;
 
@@ -588,6 +589,121 @@ $router->get('admin.backup.download', function (Request $request) use ($requireA
     header('Cache-Control: no-store');
     echo $data;
     exit;
+});
+
+/* ---------------------------- دورة حياة النسخة ---------------------------- */
+
+/**
+ * حالة النسخة: ما الذي سيُحذف بالضبط إن قرّر المستخدم التدمير.
+ *
+ * تُرجع مسارات نسبية فقط — كشف مسار القرص المطلق للمدير عبر الويب
+ * لا فائدة منه، ويكشف بنية الخادم.
+ */
+$router->get('admin.instance.state', function (Request $request) use ($requireAuth): void {
+    $requireAuth($request);
+    if (!ProjectConfig::feature('admin_rebuild')) {
+        throw new HttpError('disabled', 'إدارة دورة حياة النسخة غير مفعّلة في هذه النسخة.', 404);
+    }
+    Response::json([
+        'ok'   => true,
+        'data' => (new InstanceService())->state(),
+    ], 200, ['Cache-Control' => 'no-store']);
+});
+
+/**
+ * تدمير النسخة: حذف كل البيانات والعودة إلى ما قبل أول تهيئة.
+ *
+ * ثلاث حمايات مستقلة، أي واحدة تكفي لوقف العملية:
+ *  1) جلسة مدير صالحة + رمز CSRF  ($requireAdmin)
+ *  2) كلمة مرور المدير الحالية — لا الجلسة وحدها: جلسة قديمة على جهاز
+ *     مشترك يجب ألّا تملك حق محو كل بيانات المشروع
+ *  3) عبارة تأكيد مكتوبة حرفيًا — لا ينقر الزر بالخطأ
+ *
+ * بعدها تُحذف بيانات الدخول، فلا يعود للجلسة أي معنى: ننهيها صراحةً
+ * قبل إرسال الاستجابة، وإلا بقي كوكي حيًا لا يفتح شيئًا.
+ */
+$router->post('admin.instance.destroy', function (Request $request) use ($body, $requireAdmin): void {
+    $requireAdmin($request);
+
+    if (!ProjectConfig::feature('admin_rebuild')) {
+        throw new HttpError('disabled', 'إدارة دورة حياة النسخة غير مفعّلة في هذه النسخة.', 404);
+    }
+
+    /*
+     * الجلسة وحدها لا تكفي، ونضيف إليها قفل المحاولات. السبب: جلسة قديمة
+     * على جهاز مشترك أو كوكي مسروق يعني خرقًا للجلسة لا للمدير، وبلا
+     * قفل يصبح هذا المسار محاولات غير محدودة لكلمة المرور — وهو أسرع
+     * طريق لتدمير بيانات المشروع. القفل نفسه المستخدم في تسجيل الدخول،
+     * فالمهاجم يوقف نفسه إن حاول التخمين.
+     */
+    if (RateLimiter::tooManyLoginAttempts($request)) {
+        throw new HttpError(
+            'locked',
+            'تم إيقاف المحاولات مؤقتًا بعد محاولات فاشلة. حاول بعد '
+            . ProjectConfig::ADMIN_LOCKOUT_MINUTES . ' دقيقة.',
+            429
+        );
+    }
+
+    $data    = $body($request);
+    $service = new InstanceService();
+
+    $password = (string) ($data['password'] ?? '');
+    $confirm  = trim((string) ($data['confirm'] ?? ''));
+
+    if (!Auth::checkCredentials(Auth::username(), $password)) {
+        RateLimiter::recordLogin($request, Auth::username(), false);
+        \App\Core\Logger::warning('Instance destroy rejected: wrong password', [
+            'ip'   => $request->ip(),
+            'user' => Auth::username(),
+        ]);
+        throw new HttpError('invalid_credentials', 'كلمة المرور غير صحيحة. لم يُحذف شيء.', 403);
+    }
+
+    if (!hash_equals(InstanceService::CONFIRM_WORD, $confirm)) {
+        throw new HttpError(
+            'confirm_mismatch',
+            'عبارة التأكيد غير مطابقة. لم يُحذف شيء. اكتب: ' . InstanceService::CONFIRM_WORD,
+            422
+        );
+    }
+
+    // كلمة المرور صحيحة: امسح عدّاد المحاولات الفاشلة قبل التنفيذ.
+    RateLimiter::recordLogin($request, Auth::username(), true);
+    RateLimiter::clearLoginAttempts($request);
+
+    // تُقرأ الحالة قبل التدمير: بعدها لن توجد قاعدة بيانات نعدّ منها.
+    $before = $service->state();
+
+    $report = $service->destroy('', [
+        'confirm' => $confirm,
+        'archive' => !isset($data['archive']) || (string) $data['archive'] !== '0',
+    ]);
+
+    // بيانات الدخول لم تعد موجودة ⇒ لا جلسة، ولا رمز CSRF صالح بعدها.
+    Auth::logout();
+
+    \App\Core\Logger::info('Instance destroyed', [
+        'ip'      => $request->ip(),
+        'user'    => $before['preset'] ?? '',
+        'orders'  => $report['counts']['orders'] ?? 0,
+        'archive' => $report['archive'],
+    ]);
+
+    Response::json([
+        'ok'   => true,
+        'data' => [
+            'message'        => 'تم تدمير النسخة. الخادم الآن في حالة ما قبل أول تهيئة.',
+            'archive'        => $report['archive'],
+            'removed'        => $report['removed'],
+            'destroyed'      => $before['counts'],
+            'setup_available' => is_file(BASE_PATH . '/setup/index.php'),
+            // الرابط يُعرض مرة واحدة فقط ثم يُفقد. المفتاح وحده لا يكفي
+            // بلا نطاق محفوظ (استضافة بلا base_url صحيح).
+            'rebuild_url'    => (string) $report['rebuildUrl'],
+            'rebuild_key'    => (string) $report['rebuildKey'],
+        ],
+    ], 200, ['Cache-Control' => 'no-store']);
 });
 
 /**

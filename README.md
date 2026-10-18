@@ -95,6 +95,22 @@ docker exec light-commerce php bin/console seed:demo
 | واجهة الزبون | <http://localhost:8080/> |
 | لوحة الإدارة | <http://localhost:8080/admin/> |
 
+> **الشيفرة حيّة — لا تحتاج إعادة بناء بعد كل تعديل.**
+> مجلد المشروع **مربوط** بالحاوية مباشرة، فأي تعديل على الملفات يظهر
+> فورًا. وما هو معزول في volumes مُسمّاة هو `storage/` و `app/uploads/`
+> فقط (بياناتك) — لا الشيفرة.
+>
+> فلا حاجة لـ `--build` أثناء التطوير اليومي؛ هو مطلوب فقط بعد تغيير
+> `Dockerfile` أو مجلد `docker/` أو إضافة **امتداد PHP** إلى الصورة.
+>
+> ⚠️ **متى تختفي تعديلاتك؟** عند `--build` فقط، لأن `COPY . /var/www/html`
+> في `Dockerfile` يثبّت الشيفرة داخل الصورة. فإن رأيتَ الحاوية تخدم
+> إصدارًا أقدم من المضيف فهذه هي السبب — لا كاش المتصفح.
+> تأكّد هكذا:
+> ```bash
+> docker exec light-commerce grep 'VERSION =' /var/www/html/src/Config/ProjectConfig.php
+> ```
+
 **أوامر التطوير المتكررة:**
 
 ```bash
@@ -477,6 +493,8 @@ php bin/console install --url=... --user=... --pass=...   تهيئة النسخ�
          [--preset=<نوع>] [--name=...] [--tagline=...]     نوع النشاط أثناء التثبيت
 php bin/console migrate                                     تحديث مخطط قاعدة البيانات
 php bin/console migrate:fresh                               حذف كل البيانات وإعادة الإنشاء
+php bin/console instance state                               حالة النسخة وما سيُحذف منها
+php bin/console instance destroy --force                     تدمير النسخة والعودة للبداية
 php bin/console admin:password --pass=...                   تعيين كلمة مرور المدير
 php bin/console preset list                                 أنواع النشاط المتاحة
 php bin/console preset show                                 النوع الحالي
@@ -590,6 +608,7 @@ curl -X POST "https://your-site.com/api/index.php?r=order.create" \
 `admin.products` · `admin.product.create|update|delete|image` ·
 `admin.locations` · `admin.location.save|delete` · `admin.settings` ·
 `admin.settings.update|export` · `admin.backups` · `admin.backup.create|download`
+· `admin.instance.state` · `admin.instance.destroy`
 
 > `admin.settings.export` هو **POST** لا GET (عملية تُعدّل الحالة ⇒ CSRF إلزامي)،
 > ويُخرج إعدادات **مبهمة**: بلا `password_hash` ولا `app_key`.

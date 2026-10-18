@@ -21,15 +21,30 @@ define('LC_IN_SETUP', true);
 require_once BASE_PATH . '/src/Core/Autoloader.php';
 
 use App\Core\Web\Paths;
+use App\Services\InstanceService;
 
 $configFile = app_config_file();
 $installed  = is_file($configFile);
 
+/*
+ * حارس إعادة البناء.
+ *
+ * بعد تدمير النسخة تصبح «غير مهيأة» حالة متكرّرة على نطاق حيّ. ولو
+ * عُرض نموذج التهيئة بلا مفتاح، لصار يكفي فيه فتح الرابط وتعيين كلمة
+ * مرور جديدة ليصبح هو المدير. لذلك التدمير ينتج مفتاحًا، ولا يُعرض
+ * النموذج إلا به. أما أوّل تثبيت فلا مفتاح له فيعمل النموذج كالمعتاد.
+ */
+$instance      = new InstanceService();
+$rebuildNeeded = $instance->rebuildPending();
+$rebuildOk     = !$rebuildNeeded
+    || $instance->checkRebuildKey((string) ($_GET['key'] ?? $_POST['key'] ?? ''));
 $errors  = [];
 $warnings = [];
 $success = false;
 $generatedPassword = '';
 $securityAlert = null;
+$destroyed = false;
+$destroyReport = null;
 
 /**
  * أنواع النشاط الجاهزة — المصدر الوحيد لتسميات المشروع ووضعه.
@@ -99,7 +114,56 @@ $writeConfig = static function (array $config) use ($configFile): void {
     \App\Core\StorageWriter::write($configFile, $php, 0640);
 };
 
-if (!$installed && $_SERVER['REQUEST_METHOD'] === 'POST') {
+/**
+ * إعادة البناء: تدمير نسخة مهيأة والعودة إلى نقطة الصفر.
+ *
+ * هذه الحالة من دورة الحياة نفسها التي يغطّيها Command center، لكنها
+ * لا تُعرَض إلا إذا بقي هذا المجلد على الخادم. ولأن بقاءه شرط
+ * أساسًا (احذفه بعد التهيئة)، فمن يصل إليه يحتاج بيانات الدخول نفسها
+ * التي يحتاجها لوحة الإدارة — لا أكثر ولا أقل.
+ */
+if ($installed && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'destroy') {
+    $user    = trim((string) ($_POST['username'] ?? ''));
+    $pass    = (string) ($_POST['password'] ?? '');
+    $confirm = trim((string) ($_POST['confirm'] ?? ''));
+
+    if (!\App\Core\Security\Auth::checkCredentials($user, $pass)) {
+        $errors[] = 'بيانات الدخول غير صحيحة. لم يُحذف شيء.';
+        \App\Core\Logger::warning('Setup destroy rejected: bad credentials', ['ip' => $_SERVER['REMOTE_ADDR'] ?? '']);
+    } elseif (!hash_equals(InstanceService::CONFIRM_WORD, $confirm)) {
+        $errors[] = 'عبارة التأكيد غير مطابقة. لم يُحذف شيء. الكلمة المطلوبة: '
+            . InstanceService::CONFIRM_WORD;
+    } else {
+        try {
+            $service = new InstanceService();
+            $destroyReport = $service->destroy('', [
+                'confirm' => $confirm,
+                'archive' => ($_POST['archive'] ?? '1') !== '0',
+            ]);
+            $destroyed = true;
+            $installed = false;
+            \App\Core\Logger::info('Instance destroyed from setup page');
+        } catch (Throwable $e) {
+            $errors[] = 'تعذّر تدمير النسخة: ' . $e->getMessage();
+        }
+    }
+}
+
+/**
+ * حارس إعادة البناء.
+ *
+ * بعد تدمير النسخة تصبح «غير مهيأة» حالة متكرّرة على نطاق حيّ. ولو
+ * عُرض نموذج التهيئة بلا مفتاح، لصار يكفي فيه فتح الرابط وتعيين كلمة
+ * مرور جديدة ليصبح المدير. لذلك ينتج التدمير مفتاحًا يُعرض للمدير مرة
+ * واحدة، ولا يُعرض النموذج إلا به.
+ *
+ * أما أوّل تثبيت فلا مفتاح له أصلًا، فيعمل النموذج كالمعتاد — بلا خطوة
+ * إضافية في أوّل مرة. وهو ما يبقيه صالحًا على استضافة لا تُتاح فيها
+ * لوحة إدارة ولا طرفية.
+ */
+if (!$rebuildOk) {
+    // لا نموذج ولا تفاصيل — من يملك الرابط وحده هو من أنشأه.
+} elseif (!$installed && !$destroyed && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $url     = rtrim(trim((string) ($_POST['base_url'] ?? '')), '/');
     $user    = trim((string) ($_POST['username'] ?? ''));
     $pass    = (string) ($_POST['password'] ?? '');
@@ -257,6 +321,12 @@ try {
             }
 
             $success = $exposure['state'] !== 'critical';
+
+            // عاد الموقع إلى طورته الطبيعية: المفتاح أُنجز وله.
+            // إبقاؤه يعني أن البناء التالي سيُقفل بمفتاح لا يعرفه أحد.
+            if ($success) {
+                $instance->consumeRebuildKey();
+            }
         } catch (Throwable $e) {
             $errors[] = 'تعذّر إنشاء قاعدة البيانات: ' . $e->getMessage();
         }
@@ -342,6 +412,17 @@ function e(string $value): string
     font-size: .85rem; color: #4b5563; line-height: 1.75;
   }
   .chosen b { color: #16181d; }
+
+  /* نموذج إعادة البناء — نفس معنى منطقة الخطر في لوحة الإدارة */
+  fieldset.danger { border-top: 1px solid #f3c6c6; margin-top: 26px; padding-top: 22px; }
+  fieldset.danger legend { color: #b91c1c; }
+  label.archive {
+    display: flex; align-items: center; gap: 9px;
+    margin-top: 16px; font-weight: 500; font-size: .86rem; color: #4b5563;
+  }
+  label.archive input { width: auto; }
+  button.danger { background: #b91c1c; }
+  button.danger:hover { background: #991b1b; }
 </style>
 </head>
 <body>
@@ -349,7 +430,20 @@ function e(string $value): string
   <h1>تهيئة النسخة</h1>
   <p class="sub">خطوة واحدة تفصلك عن تشغيل القالب.</p>
 
-  <?php if ($securityAlert !== null): ?>
+  <?php if (!$rebuildOk): ?>
+    <?php /* حارس إعادة البناء: لا نكشف شيئًا ولا نلمّح إلى سبب الرفض */ ?>
+    <div class="alert err">
+      <strong>إعادة البناء مقفلة بمفتاح.</strong>
+      هذه النسخة كانت مدمَّرة، والعودة إلى نقطة الصفر تتطلّب مفتاحًا
+      أنشأه التدمير ويعرفه صاحب النسخة وحده.
+    </div>
+    <p class="hint">
+      المفتاح معروض في لوحة الإدارة لحظة التدمير، أو اطبعه بالأمر:
+      <code>php bin/console instance state</code> ثم افتح
+      <code>setup/index.php?key=…</code>
+    </p>
+
+  <?php elseif ($securityAlert !== null): ?>
     <div class="alert err">
       <strong>⛔ توقف: بيانات الزبائن مكشوفة على الإنترنت</strong>
       <p style="margin:8px 0 0">
@@ -375,6 +469,59 @@ function e(string $value): string
       <a href="../admin/">لوحة الإدارة</a>
     </div>
 
+    <?php if (\App\Config\ProjectConfig::feature('admin_rebuild')): ?>
+      <?php $destroyState = (new InstanceService())->state(); ?>
+      <fieldset class="danger">
+        <legend>إعادة البناء من الصفر</legend>
+        <div class="chosen" style="margin-bottom:16px">
+          هذه العملية تمحو كل بيانات النسخة —
+          <b><?= (int) $destroyState['counts']['orders'] ?> طلبًا</b>،
+          <b><?= (int) $destroyState['counts']['products'] ?> منتجًا</b>،
+          الصور وبيانات الدخول والنسخ الاحتياطية — وتعيد الموقع إلى ما قبل أول تهيئة.
+          <br>
+          <b>القالب لا يُحذف</b>؛ تُحذف البيانات فقط.
+          <?php if (!empty($destroyState['archives'])): ?>
+            <br>نسخ أمان سابقة محفوظة: <?= count($destroyState['archives']) ?>.
+          <?php endif; ?>
+        </div>
+
+        <?php if ($errors !== []): ?>
+          <div class="alert err">
+            <strong>لم يُحذف شيء:</strong>
+            <ul>
+              <?php foreach ($errors as $error): ?>
+                <li><?= e($error) ?></li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+        <?php endif; ?>
+
+        <form method="post" autocomplete="off">
+          <input type="hidden" name="action" value="destroy">
+
+          <label for="d_username">اسم المستخدم</label>
+          <input type="text" id="d_username" name="username" dir="ltr" required
+                 value="<?= e($_POST['username'] ?? '') ?>">
+
+          <label for="d_password">كلمة المرور</label>
+          <input type="password" id="d_password" name="password" required>
+
+          <label for="d_confirm">
+            اكتب <code><?= e(InstanceService::CONFIRM_WORD) ?></code> للتأكيد
+          </label>
+          <input type="text" id="d_confirm" name="confirm" required
+                 placeholder="<?= e(InstanceService::CONFIRM_WORD) ?>">
+
+          <label class="archive">
+            <input type="checkbox" name="archive" value="1" checked>
+            حفظ نسخة أمان قبل الحذف
+          </label>
+
+          <button type="submit" class="danger">تدمير النسخة والعودة للبداية</button>
+        </form>
+      </fieldset>
+    <?php endif; ?>
+
   <?php elseif ($success): ?>
     <div class="alert ok">
       تمت التهيئة بنجاح. يمكنك الآن استخدام القالب.
@@ -388,7 +535,30 @@ function e(string $value): string
     </div>
 
   <?php else: ?>
-    <?php if ($errors !== []): ?>
+    <?php if ($destroyed): ?>
+      <?php /* تدمير ناجح: نفس الصفحة تتحول فورًا إلى نموذج بناء جديد */ ?>
+      <div class="alert ok">
+        <strong>تم تدمير النسخة.</strong>
+        حُذف <?= count($destroyReport['removed'] ?? []) ?> عنصرًا، والموقع الآن
+        في حالة ما قبل أول تهيئة. القالب لم يُمس.
+      </div>
+      <?php if (!empty($destroyReport['archive'])): ?>
+        <div class="alert warn">
+          نسخة الأمان في <code><?= e($destroyReport['archive']) ?></code> —
+          فيها قاعدة البيانات وبيانات الدخول إن أردت الاسترجاع لاحقًا.
+        </div>
+      <?php endif; ?>
+      <?php if (!empty($destroyReport['rebuildUrl'])): ?>
+        <div class="alert ok">
+          <strong>احفظ رابط البناء الجديد الآن</strong> — لا يُعرض مرة أخرى:
+          <br><code style="word-break:break-all;display:inline-block;margin-top:6px"><?= e($destroyReport['rebuildUrl']) ?></code>
+          <br>الصفحة نفسها مفتوحة الآن بمفتاحها، لكن الرابط كاملًا هو ما
+          تحتاجه لو أردت العودة لاحقًا من جهاز آخر.
+        </div>
+      <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if ($errors !== [] && !$destroyed): ?>
       <div class="alert err">
         <strong>تعذّرت التهيئة:</strong>
         <ul>
@@ -411,6 +581,10 @@ function e(string $value): string
     <?php endif; ?>
 
     <form method="post" autocomplete="off">
+      <?php /* المفتاح يُحمل مع الطلب حتى لا يضيع عند إعادة التحميل */ ?>
+      <?php if ($rebuildNeeded): ?>
+        <input type="hidden" name="key" value="<?= e((string) ($_GET['key'] ?? '')) ?>">
+      <?php endif; ?>
 
       <fieldset>
         <legend>ما نوع نشاطك؟</legend>

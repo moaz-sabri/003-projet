@@ -514,6 +514,53 @@ td.actions .btn { margin-inline-start: 6px; }
 .info-grid { padding: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
 .info-grid .detail-box { font-size: .87rem; }
 
+/* ===================== منطقة الخطر: تدمير النسخة ===================== */
+/*
+  المنطقة الوحيدة في اللوحة بحدّ أحمر. قاعدتها: كل ما قد يُمحى نهائيًا
+  لا يشارك مساحة بصرية مع ما هو قابل للاسترجاع، فلا يُخلط بينهما بالخطأ.
+*/
+.panel-danger { border-color: var(--danger); border-width: 1.5px; }
+.panel-danger .panel-head h3 { color: var(--danger); }
+.panel-danger .panel-note { margin: 0; padding: 0 20px; color: var(--ink-3); font-size: .87rem; line-height: 1.8; }
+.panel-danger .panel-note strong { color: var(--ink); }
+
+.panel-tag {
+  padding: 3px 10px; border-radius: 999px; font-size: .7rem; font-weight: 700;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.panel-foot { padding: 0 20px 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* قائمة ما سيُحذف — تُعرض قبل التأكيد لا بعده */
+.danger-list { margin: 16px 0 0; padding: 0; list-style: none; font-size: .87rem; }
+.danger-list li {
+  padding: 9px 0 9px 22px; position: relative; color: var(--ink-2);
+  border-bottom: 1px solid var(--line);
+}
+.danger-list li:last-child { border-bottom: 0; }
+.danger-list li::before {
+  content: "×"; position: absolute; inset-inline-start: 0; top: 9px;
+  color: var(--danger); font-weight: 800;
+}
+.danger-list code {
+  background: var(--surface-2); padding: 1px 6px; border-radius: 5px;
+  font-size: .82em; direction: ltr; display: inline-block;
+}
+.danger-note {
+  margin: 14px 0 0; padding: 12px 14px; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+  font-size: .84rem; line-height: 1.75; color: var(--ink-2);
+}
+.danger-check { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; font-size: .87rem; }
+.danger-check input { width: auto; margin-top: 3px; }
+.danger-check code { background: var(--surface-2); padding: 1px 6px; border-radius: 5px; font-size: .85em; direction: ltr; display: inline-block; }
+
+.danger-field-label { margin: 18px 0 6px; font-size: .86rem; font-weight: 600; }
+.danger-field-label code { background: var(--surface-2); padding: 2px 7px; border-radius: 5px; font-weight: 700; }
+.modal input[type="text"] { width: 100%; }
+
 /* =========================== الدرج والنوافذ =========================== */
 
 .drawer-backdrop, .modal-backdrop {
