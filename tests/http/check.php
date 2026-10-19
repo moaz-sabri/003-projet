@@ -261,7 +261,7 @@ $protectedPaths = [
     '/src/bootstrap.php',
     '/bin/console',
     '/tests/run.php',
-    '/.htaccess',
+    '/storage/destroyed/app.sqlite',  // نسخ أمان التدمير — حسّاسة كقاعدة البيانات
     // أرشيف في جذر الموقع = نزّل storage كاملًا بترويسة واحدة
     '/setup.zip',
     '/backup.zip',
