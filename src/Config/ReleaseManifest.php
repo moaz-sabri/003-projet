@@ -44,6 +44,7 @@ final class ReleaseManifest
     public const INCLUDE_PATHS = [
         'index.php',                  // نقطة دخول واجهة الزبون على الجذر
         'sw.js',                       // عامل الخدمة — يجب أن يبقى على جذر النطاق
+        'emergency.php',               // رابط التدمير الطارئ — مفتاحه سريّ ويولَّد عند التهيئة
         'admin',                       // لوحة الإدارة
         'api',                         // واجهة JSON
         'app',                         // ملفات واجهة الزبون (PWA)

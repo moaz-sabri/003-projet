@@ -112,7 +112,7 @@ if ($path === '/setup') {
 }
 
 /* --------------------------- ملفات PHP مسموحة --------------------------- */
-$allowedPhp = ['/api/index.php', '/admin/index.php', '/setup/index.php', '/bin/console'];
+$allowedPhp = ['/api/index.php', '/admin/index.php', '/setup/index.php', '/emergency.php', '/bin/console'];
 
 if (preg_match('/\.php$/i', $path)) {
     $script = realpath(__DIR__ . '/..' . $path);

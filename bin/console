@@ -11,6 +11,7 @@ declare(strict_types=1);
  *   php bin/console migrate:fresh
  *   php bin/console instance state
  *   php bin/console instance destroy --force
+ *   php bin/console admin:reset --force
  *   php bin/console preset [list|show|apply <المعرّف>]
  *   php bin/console backup
  *   php bin/console icons
@@ -47,7 +48,14 @@ $say = static function (string $message, string $type = 'info'): void {
  * ------------------------------------------------------------------ */
 
 $writeLocalConfig = static function (array $config) use ($say): void {
-    $dir = BASE_PATH . '/storage/config';
+    /*
+     * نكتب في الملف نفسه الذي يقرأ منه التطبيق (app_config_file)، لا في
+     * مسار ثابت: قد يوجّه LC_CONFIG_FILE إلى ملف مؤقت، وقد يوجد ملف خارج
+     * جذر الويب. الكتابة في مسار آخر تترك الإعداد الحقيقي قديمًا وتُنشئ
+     * ملفًا ثانيًا متناقضًا.
+     */
+    $target = app_config_file();
+    $dir    = dirname($target);
     if (!is_dir($dir)) {
         mkdir($dir, 0775, true);
     }
@@ -57,8 +65,8 @@ $writeLocalConfig = static function (array $config) use ($say): void {
          . "// لا من ملف داخل المجلد. على استضافة لا تتيح تعديل الإعدادات،\n"
          . "// استخدم: php tools/move-outside-webroot.php --yes\n"
          . "return " . var_export($config, true) . ";\n";
-    file_put_contents($dir . '/local.php', $php, LOCK_EX);
-    \App\Core\StorageWriter::fixOwnership($dir . '/local.php', 0640);
+    file_put_contents($target, $php, LOCK_EX);
+    \App\Core\StorageWriter::fixOwnership($target, 0640);
 };
 
 $ensureInstalled = static function () use ($say): void {
@@ -153,6 +161,20 @@ switch ($command) {
             (($preset['mode'] ?? '') === \App\Config\BusinessPresets::MODE_ORDERS
                 ? 'مع نظام الطلبات' : 'عرض فقط'));
 
+        /*
+         * مفتاح الطوارئ: يولّد مرة واحدة ويُحفظ خارج جذر الويب. بدونه
+         * صفحة emergency.php تردّ 404، فلا يوجد باب مفتوح افتراضيًا.
+         */
+        $emergencyService = new \App\Services\EmergencyService();
+        $emergencyKey = $emergencyService->ensureKey();
+        $emergencyUrl = $emergencyService->url();
+        $emergencyDefaults = \App\Services\EmergencyService::defaults();
+        $say('');
+        $say('رابط التدمير الطارئ (سرّي — احفظه في مكان آمن):', 'head');
+        $say('  ' . ($emergencyUrl !== '' ? $emergencyUrl : $url . '/emergency.php?key=' . $emergencyKey), 'ok');
+        $say('  بيانات الطوارئ الافتراضية: ' . $emergencyDefaults['username']
+            . ' / ' . $emergencyDefaults['password'], 'warn');
+
         // فحص أمان إلزامي: بعض الاستضافات لا تحجب الوصول للبيانات
         // داخل الحاوية لا يصل الخادم إلى رابطه العلني، لذا نجرّب عناوين داخلية.
         $exposure = ['state' => 'unknown', 'checked' => 0, 'exposed' => [], 'hint' => ''];
@@ -245,6 +267,74 @@ switch ($command) {
         exit(0);
     }
 
+    /*
+     * admin:reset — وصول طوارئ من الطرفية.
+     *
+     * يفرض بيانات الدخول الافتراضية المعروفة (admin / Test1234@) ويفكّ
+     * قفل المحاولات، ثم يضمن وجود مفتاح الطوارئ ويطبع رابطه السرّي.
+     * هذا هو المخرج الأخير حين تُفقد كلمة المرور أو يتعذّر الوصول للوحة.
+     */
+    case 'admin:reset': {
+        $ensureInstalled();
+
+        if (!isset($options['force'])) {
+            $say('هذا الأمر يفرض بيانات دخول معروفة (الافتراضية) على حساب المدير:', 'warn');
+            $say('  اسم المستخدم : ' . \App\Services\EmergencyService::DEFAULT_USERNAME);
+            $say('  كلمة المرور  : ' . \App\Services\EmergencyService::DEFAULT_PASSWORD, 'warn');
+            $say('استخدمه في الطوارئ فقط، وغيّر كلمة المرور فور استرجاع الوصول.', 'warn');
+            $say('');
+            $say('للتأكيد أعِد الأمر مع --force:', 'warn');
+            $say('    php bin/console admin:reset --force', 'warn');
+            exit(1);
+        }
+
+        require_once BASE_PATH . '/src/bootstrap.php';
+
+        $user = trim((string) ($options['user'] ?? \App\Services\EmergencyService::DEFAULT_USERNAME));
+        if ($user === '') {
+            $user = \App\Services\EmergencyService::DEFAULT_USERNAME;
+        }
+        $pass = (string) ($options['pass'] ?? \App\Services\EmergencyService::DEFAULT_PASSWORD);
+        if (mb_strlen($pass) < 8) {
+            $say('كلمة المرور قصيرة جدًا (8 محارف على الأقل).', 'err');
+            exit(1);
+        }
+
+        $file   = app_config_file();
+        $config = require $file;
+        $config['admin']['username']      = $user;
+        $config['admin']['password_hash'] = password_hash($pass, PASSWORD_DEFAULT);
+        $config['admin']['updated_at']    = date('c');
+        $writeLocalConfig($config);
+
+        // فكّ قفل محاولات الدخول الفاشلة حتى يعمل الدخول فورًا.
+        try {
+            \App\Core\Database::delete('login_attempts', '1 = 1');
+        } catch (\Throwable) {
+            // قاعدة غير مهيأة أو تعذّر الوصول: لا يمنع ذلك فرض البيانات.
+        }
+
+        $emergency = new \App\Services\EmergencyService();
+        $key       = $emergency->ensureKey();
+        $url       = $emergency->url();
+        $fallback  = rtrim((string) app_config('app.base_url', ''), '/');
+
+        \App\Core\Logger::warning('Admin credentials forced via admin:reset', [
+            'username' => $user,
+            'ip'       => 'cli',
+        ]);
+
+        $say('تم فرض بيانات الدخول.', 'ok');
+        $say('اسم المستخدم : ' . $user);
+        $say('كلمة المرور  : ' . $pass, 'warn');
+        $say('');
+        $say('رابط التدمير الطارئ (سرّي — احفظه في مكان آمن):', 'head');
+        $say('  ' . ($url !== '' ? $url : ($fallback !== '' ? $fallback : '<نطاقك>') . '/emergency.php?key=' . $key), 'ok');
+        $say('');
+        $say('لتغيير كلمة المرور الآن: php bin/console admin:password --pass="…"', 'warn');
+        exit(0);
+    }
+
     case 'backup': {
         $ensureInstalled();
         require_once BASE_PATH . '/src/bootstrap.php';
@@ -314,6 +404,15 @@ switch ($command) {
         $version = \App\Core\Database::value('SELECT value FROM app_meta WHERE key = :k', ['k' => 'schema_version']);
         $say('مخطط قاعدة البيانات: ' . ($version ?: '؟'));
         $say('الإعدادات: ' . (is_writable(BASE_PATH . '/storage') ? 'قابلة للكتابة' : 'غير قابلة للكتابة'), is_writable(BASE_PATH . '/storage') ? 'ok' : 'err');
+
+        // حالة باب الطوارئ: مفعّل بمفتاح، أم مغلق بحذف الملف.
+        $emergencyInfo = new \App\Services\EmergencyService();
+        if ($emergencyInfo->isArmed()) {
+            $emergencyUrl = $emergencyInfo->url();
+            $say('رابط الطوارئ: ' . ($emergencyUrl !== '' ? $emergencyUrl : '(مفتاح موجود — النطاق غير معروف)'), 'warn');
+        } else {
+            $say('رابط الطوارئ: معطّل (لا مفتاح) — فعّله: php bin/console admin:reset --force', 'warn');
+        }
 
         // تنبيه أمني سريع: هل ما زالت حماية المسارات الحسّاسة فعّالة؟
         $baseUrl = rtrim((string) app_config('app.base_url', ''), '/');
@@ -589,6 +688,8 @@ switch ($command) {
           instance destroy --force                  تدمير النسخة والعودة للبداية
                   [--no-archive] [--keep-backups]
           admin:password --pass=...                 تعيين كلمة مرور المدير
+          admin:reset --force                       فرض بيانات الدخول الافتراضية (طوارئ)
+                  [--user=...] [--pass=...]         وطبع رابط التدمير السرّي
           preset list|show|apply <المعرّف>         عرض أو تغيير نوع النشاط والوضع
           backup                                    إنشاء نسخة احتياطية
           icons                                     توليد أيقونات PWA

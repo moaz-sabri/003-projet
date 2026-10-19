@@ -528,6 +528,32 @@ function e(string $value): string
     <div class="alert ok">
       تمت التهيئة بنجاح. يمكنك الآن استخدام القالب.
     </div>
+    <?php
+    // رابط الطوارئ: يُولَّد مفتاحه أول مرة هنا ويُحفظ خارج جذر الويب.
+    $emergencyUrl = '';
+    try {
+        $emergencySvc = new \App\Services\EmergencyService();
+        $emergencyKey = $emergencySvc->ensureKey();
+        $emergencyUrl = $emergencySvc->url();
+        if ($emergencyUrl === '') {
+            $host   = (string) ($_SERVER['HTTP_HOST'] ?? '');
+            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            if ($host !== '') {
+                $emergencyUrl = $scheme . '://' . $host . '/emergency.php?key=' . rawurlencode($emergencyKey);
+            }
+        }
+    } catch (Throwable $e) {
+        // لا نُفشل التهيئة بسبب تعذّر كتابة المفتاح.
+    }
+    ?>
+    <?php if ($emergencyUrl !== ''): ?>
+      <div class="alert warn">
+        <strong>رابط التدمير الطارئ (سرّي)</strong> — احفظه في مكان آمن ولا تشاركه.
+        هو آخر مخرج إن فُقدت كلمة المرور:
+        <br><code style="word-break:break-all;display:inline-block;margin-top:6px"><?= e($emergencyUrl) ?></code>
+        <br>بيانات الطوارئ الافتراضية: <b>admin / Test1234@</b> — غيّرها فور استرجاع الوصول.
+      </div>
+    <?php endif; ?>
     <p class="hint">
       نصيحة أمنية: احذف مجلد <code>setup/</code> الآن من السيرفر.
     </p>

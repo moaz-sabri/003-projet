@@ -100,6 +100,9 @@ return static function (): void {
         ['صفحة التهيئة متاحة',
             'location = /setup/index.php',
             'location = /setup/index.php'],
+        ['رابط التدمير الطارئ متاح',
+            'location = /emergency.php',
+            'location = /emergency.php'],
         ['توجيه /setup',
             'location = /setup {',
             'location = /setup {'],
@@ -166,6 +169,7 @@ return static function (): void {
     Assert::contains($serve, "'/setup/index.php'", 'خادم التطوير يسمح بـ /setup/index.php');
     Assert::contains($serve, "'/api/index.php'", 'خادم التطوير يسمح بـ /api/index.php');
     Assert::contains($serve, "'/admin/index.php'", 'خادم التطوير يسمح بـ /admin/index.php');
+    Assert::contains($serve, "'/emergency.php'", 'خادم التطوير يسمح بـ /emergency.php');
 
     /*
      * setup/ ليست في قوائم الحجب.

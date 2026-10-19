@@ -256,6 +256,7 @@ section('٣. حماية الملفات الحساسة');
 $protectedPaths = [
     '/storage/database/app.sqlite',
     '/storage/config/local.php',
+    '/storage/config/emergency.key',  // مفتاح التدمير الطارئ — سرّ لا يُخدم أبدًا
     '/storage/backups/',
     '/src/Config/ProjectConfig.php',
     '/src/bootstrap.php',

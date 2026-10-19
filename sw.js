@@ -9,7 +9,7 @@
    - لا يوجد طابور إرسال: الطلب دون اتصال لا يُرسل ولا يُؤجَّل.
    ========================================================================== */
 
-const VERSION = 'v1.5.0';
+const VERSION = 'v1.6.0';
 const SHELL_CACHE = `lc-shell-${VERSION}`;
 const DATA_CACHE = `lc-data-${VERSION}`;
 
