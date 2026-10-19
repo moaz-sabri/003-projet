@@ -49,24 +49,11 @@ $say = static function (string $message, string $type = 'info'): void {
 
 $writeLocalConfig = static function (array $config) use ($say): void {
     /*
-     * نكتب في الملف نفسه الذي يقرأ منه التطبيق (app_config_file)، لا في
-     * مسار ثابت: قد يوجّه LC_CONFIG_FILE إلى ملف مؤقت، وقد يوجد ملف خارج
-     * جذر الويب. الكتابة في مسار آخر تترك الإعداد الحقيقي قديمًا وتُنشئ
-     * ملفًا ثانيًا متناقضًا.
+     * كاتب واحد يُستخدم هنا وفي لوحة الإدارة وصفحة التهيئة:
+     * يكتب في الملف نفسه الذي يقرأه التطبيق (app_config_file)، ويتحقّق من
+     * نجاح الكتابة فعلًا، ويُبطل opcache حتى يسري التغيير فورًا.
      */
-    $target = app_config_file();
-    $dir    = dirname($target);
-    if (!is_dir($dir)) {
-        mkdir($dir, 0775, true);
-    }
-    $php = "<?php\n"
-         . "// إعدادات محلية للنسخة — لا تُرفع إلى أي مستودع ولا تُخدم عبر الويب.\n"
-         . "// الحماية من الوصول تأتي من إعداد nginx (deploy/nginx/site.conf)،\n"
-         . "// لا من ملف داخل المجلد. على استضافة لا تتيح تعديل الإعدادات،\n"
-         . "// استخدم: php tools/move-outside-webroot.php --yes\n"
-         . "return " . var_export($config, true) . ";\n";
-    file_put_contents($target, $php, LOCK_EX);
-    \App\Core\StorageWriter::fixOwnership($target, 0640);
+    \App\Core\LocalConfig::write($config);
 };
 
 $ensureInstalled = static function () use ($say): void {
@@ -258,12 +245,29 @@ switch ($command) {
             $say('كلمة المرور قصيرة جدًا.', 'err');
             exit(1);
         }
-        $file = app_config_file();
-        $config = require $file;
+        $config = \App\Core\LocalConfig::read();
+        $config['admin'] = is_array($config['admin'] ?? null) ? $config['admin'] : [];
         $config['admin']['password_hash'] = password_hash($new, PASSWORD_DEFAULT);
         $config['admin']['updated_at'] = date('c');
-        $writeLocalConfig($config);
+
+        try {
+            $writeLocalConfig($config);
+        } catch (\Throwable $e) {
+            $say('تعذّر حفظ كلمة المرور: ' . $e->getMessage(), 'err');
+            exit(1);
+        }
+
+        // تحقّق مستقل عن الكاتب: هل كلمة المرور الجديدة تُطابق الملف فعلًا؟
+        $check = \App\Core\LocalConfig::read();
+        if (!password_verify($new, (string) ($check['admin']['password_hash'] ?? ''))) {
+            $say('كُتب الملف لكن كلمة المرور لم تُطبَّق — تحقّق من صلاحيات storage/config.', 'err');
+            exit(1);
+        }
+
         $say('تم تحديث كلمة مرور المدير.', 'ok');
+        $say('اسم المستخدم : ' . (string) ($config['admin']['username'] ?? '—'));
+        $say('كلمة المرور  : ' . $new, 'warn');
+        $say('إن فشل الدخول، تأكّد أن الطرفية لم تُفسّر محارف خاصة ($ أو `) داخل كلمة المرور.', 'warn');
         exit(0);
     }
 
@@ -300,12 +304,25 @@ switch ($command) {
             exit(1);
         }
 
-        $file   = app_config_file();
-        $config = require $file;
+        $config = \App\Core\LocalConfig::read();
+        $config['admin'] = is_array($config['admin'] ?? null) ? $config['admin'] : [];
         $config['admin']['username']      = $user;
         $config['admin']['password_hash'] = password_hash($pass, PASSWORD_DEFAULT);
         $config['admin']['updated_at']    = date('c');
-        $writeLocalConfig($config);
+
+        try {
+            $writeLocalConfig($config);
+        } catch (\Throwable $e) {
+            $say('تعذّر حفظ البيانات: ' . $e->getMessage(), 'err');
+            exit(1);
+        }
+
+        // تحقّق مستقل: هل كلمة المرور المفروضة تُطابق الملف فعلًا؟
+        $check = \App\Core\LocalConfig::read();
+        if (!password_verify($pass, (string) ($check['admin']['password_hash'] ?? ''))) {
+            $say('كُتب الملف لكن كلمة المرور لم تُطبَّق — تحقّق من صلاحيات storage/config.', 'err');
+            exit(1);
+        }
 
         // فكّ قفل محاولات الدخول الفاشلة حتى يعمل الدخول فورًا.
         try {

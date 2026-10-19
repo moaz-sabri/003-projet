@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Core\Security;
 
 use App\Config\ProjectConfig;
+use App\Core\LocalConfig;
 
 /**
  * جلسة المدير الواحد: تهيئة آمنة، تجديد المعرّف بعد الدخول، وانتهاء زمني.
@@ -117,22 +118,22 @@ final class Auth
     /** تغيير كلمة المرور (يتطلب الجلسة الحالية). */
     public static function changePassword(string $newPassword): void
     {
-        $configFile = app_config_file();
-        $hash       = password_hash($newPassword, PASSWORD_DEFAULT);
-        $php        = "<?php\n// ملف إعدادات محلي — لا يُرفع إلى أي مستودع ولا يُخدم عبر الويب.\n// الحماية من الوصول تأتي من إعداد nginx، لا من ملف داخل المجلد.\nreturn "
-                    . var_export([
-                        'installed_at' => date('c'),
-                        'debug'        => false,
-                        'app_key'      => bin2hex(random_bytes(16)),
-                        'app'          => ['base_url' => (string) app_config('app.base_url', '')],
-                        'db'           => ['path' => (string) app_config('db.path', BASE_PATH . '/storage/database/app.sqlite')],
-                        'admin'        => [
-                            'username'      => (string) app_config('admin.username', ''),
-                            'password_hash' => $hash,
-                            'updated_at'    => date('c'),
-                        ],
-                    ], true)
-                    . ";\n";
-        \App\Core\StorageWriter::write($configFile, $php, 0640);
+        /*
+         * نقرأ الإعدادات القائمة ونعدّل حقلًا واحدًا فقط. النسخة السابقة
+         * كانت تعيد بناء الملف من قالب ثابت، فتُسقط أي مفتاح آخر (مثل
+         * debug أو أي إعداد مستقبلي) وتُجدّد app_key بلا داعٍ.
+         *
+         * LocalConfig يتحقّق من نجاح الكتابة ويُبطل opcache، فإذا فشلت
+         * الكتابة (صلاحيات) يظهر خطأ صريح بدل رسالة نجاح كاذبة.
+         */
+        LocalConfig::update(static function (array $config) use ($newPassword): array {
+            $admin = is_array($config['admin'] ?? null) ? $config['admin'] : [];
+            $admin['username']      = (string) ($admin['username'] ?? app_config('admin.username', ''));
+            $admin['password_hash'] = password_hash($newPassword, PASSWORD_DEFAULT);
+            $admin['updated_at']    = date('c');
+            $config['admin']        = $admin;
+
+            return $config;
+        });
     }
 }

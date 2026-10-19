@@ -102,18 +102,9 @@ $buildCompanyJson = static function (array $preset, string $name, string $taglin
     return $doc;
 };
 
-/** كتابة ملف الإعدادات المحلية بصلاحيات آمنة. */
+/** كتابة ملف الإعدادات المحلية بصلاحيات آمنة (كاتب موحّد يتحقّق من النجاح). */
 $writeConfig = static function (array $config) use ($configFile): void {
-    $dir = dirname($configFile);
-    if (!is_dir($dir)) {
-        mkdir($dir, 0775, true);
-    }
-    $php = "<?php\n"
-         . "// إعدادات محلية للنسخة — لا تُرفع إلى أي مستودع ولا تُخدم عبر الويب.\n"
-         . "// الحماية من الوصول تأتي من إعداد nginx (deploy/nginx/site.conf)،\n"
-         . "// لا من ملف داخل المجلد.\n"
-         . "return " . var_export($config, true) . ";\n";
-    \App\Core\StorageWriter::write($configFile, $php, 0640);
+    \App\Core\LocalConfig::write($config);
 };
 
 /**
@@ -209,21 +200,21 @@ if (!$rebuildOk) {
     $companyTagline = mb_substr(trim((string) ($_POST['company_tagline'] ?? '')), 0, 160);
 
     if ($errors === []) {
-        $writeConfig([
-            'installed_at' => date('c'),
-            'debug'        => false,
-            'app_key'      => bin2hex(random_bytes(16)),
-            'app'          => ['base_url' => $url],
-            'db'           => ['path' => BASE_PATH . '/storage/database/app.sqlite'],
-            'admin'        => [
-                'username'      => $user,
-                'password_hash' => password_hash($pass, PASSWORD_DEFAULT),
-                'updated_at'    => date('c'),
-            ],
-        ]);
-
         // إنشاء المخطط
         try {
+            $writeConfig([
+                'installed_at' => date('c'),
+                'debug'        => false,
+                'app_key'      => bin2hex(random_bytes(16)),
+                'app'          => ['base_url' => $url],
+                'db'           => ['path' => BASE_PATH . '/storage/database/app.sqlite'],
+                'admin'        => [
+                    'username'      => $user,
+                    'password_hash' => password_hash($pass, PASSWORD_DEFAULT),
+                    'updated_at'    => date('c'),
+                ],
+            ]);
+
             require_once BASE_PATH . '/src/bootstrap.php';
             \App\Core\Migrations::migrate();
 
@@ -330,7 +321,7 @@ try {
                 $instance->consumeRebuildKey();
             }
         } catch (Throwable $e) {
-            $errors[] = 'تعذّر إنشاء قاعدة البيانات: ' . $e->getMessage();
+            $errors[] = 'تعذّرت التهيئة: ' . $e->getMessage();
         }
     }
 }
