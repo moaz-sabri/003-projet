@@ -9,7 +9,7 @@
    - لا يوجد طابور إرسال: الطلب دون اتصال لا يُرسل ولا يُؤجَّل.
    ========================================================================== */
 
-const VERSION = 'v1.4.0';
+const VERSION = 'v1.5.0';
 const SHELL_CACHE = `lc-shell-${VERSION}`;
 const DATA_CACHE = `lc-data-${VERSION}`;
 
@@ -26,6 +26,7 @@ const shellUrl = SCOPE;
 const SHELL_ASSETS = [
   SCOPE,
   APP_BASE + 'css/app.css',
+  APP_BASE + 'js/theme.js',
   APP_BASE + 'js/api.js',
   APP_BASE + 'js/store.js',
   APP_BASE + 'js/ui.js',

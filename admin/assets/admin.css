@@ -205,6 +205,7 @@ a { color: var(--accent); }
   border: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
 }
 .alert.ok { background: var(--ok-soft); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 22%, transparent); }
+.alert.warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 22%, transparent); }
 
 /* ============================== الرسائل ============================== */
 

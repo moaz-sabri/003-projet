@@ -206,6 +206,7 @@ foreach (ProjectConfig::ORDER_STATUSES as $key => $def) {
         <h3>المنتجات</h3>
         <button class="btn btn-primary" id="product-new">+ منتج جديد</button>
       </div>
+      <div class="alert warn" id="product-limit-hint" hidden></div>
       <div class="panel">
         <div class="table-wrap" id="products-table"></div>
       </div>

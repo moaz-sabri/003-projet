@@ -56,6 +56,11 @@ return function (): void {
     Assert::true($details !== null, 'تفاصيل المنتج متاحة عبر الـ API');
     Assert::greater(count($details['details']), 0, 'تفاصيل المنتج تحتوي حقولًا');
 
+    // نفس حقول البطاقة: رابط «عرض التفاصيل الكاملة» داخل النافذة يعتمد عليها
+    Assert::true($details['has_details'], 'تفاصيل المنتج تحمل has_details ليبقى رابط الصفحة الكاملة');
+    Assert::true(is_array($details['extra']), 'تفاصيل المنتج تحمل الحقول الإضافية');
+    Assert::true(is_array($details['tags']), 'تفاصيل المنتج تحمل الوسوم');
+
     Assert::same(null, $catalog->productDetails(999999), 'منتج غير موجود يعيد null');
 
     /* (2) البحث ------------------------------------------------------------ */

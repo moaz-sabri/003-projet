@@ -56,6 +56,7 @@ final class BusinessPresets
                 'catalog_cta'      => 'تصفّح القائمة',
                 'order_cta'        => 'اطلب الآن',
                 'home_hero_title'  => 'نطبخ لك ونوصلها',
+                'multi_item_orders' => true,
                 'locations' => [
                     'enabled'   => true,
                     'singular'  => 'طاولة',
@@ -95,6 +96,7 @@ final class BusinessPresets
                 'catalog_cta'      => 'تصفّح المنتجات',
                 'order_cta'        => 'أكمل الطلب',
                 'home_hero_title'  => 'كل ما تحتاجه في مكان واحد',
+                'multi_item_orders' => true,
                 'locations' => [
                     'enabled'   => false,
                     'singular'  => 'فرع',
@@ -132,6 +134,7 @@ final class BusinessPresets
                 'catalog_cta'      => 'تصفّح المعرض',
                 'order_cta'        => '',
                 'home_hero_title'  => 'معرض يعرض لك الخيارات كاملة',
+                'multi_item_orders' => false,
                 'locations' => [
                     'enabled'   => false,
                     'singular'  => 'معرض',
@@ -178,6 +181,7 @@ final class BusinessPresets
                 'catalog_cta'      => 'تصفّح الخدمات',
                 'order_cta'        => 'احجز موعدك',
                 'home_hero_title'  => 'رعايتكم تبدأ من هنا',
+                'multi_item_orders' => false,
                 'locations' => [
                     'enabled'   => false,
                     'singular'  => 'فرع',
@@ -226,6 +230,7 @@ final class BusinessPresets
                 'catalog_cta'      => 'تصفّح الأعمال',
                 'order_cta'        => 'اطلب الخدمة',
                 'home_hero_title'  => 'نحوّل فكرتك إلى واقع',
+                'multi_item_orders' => false,
                 'locations' => [
                     'enabled'   => false,
                     'singular'  => 'مقر',
@@ -263,6 +268,7 @@ final class BusinessPresets
                 'catalog_cta'      => 'تصفّح المنتجات',
                 'order_cta'        => '',
                 'home_hero_title'  => 'نقدّم لكم ما نمتاز به',
+                'multi_item_orders' => false,
                 'locations' => [
                     'enabled'   => false,
                     'singular'  => 'فرع',
@@ -331,6 +337,7 @@ final class BusinessPresets
             'catalog_cta'          => (string) ($preset['catalog_cta'] ?? ''),
             'order_cta'            => (string) ($preset['order_cta'] ?? ''),
             'home_hero_title'      => (string) ($preset['home_hero_title'] ?? ''),
+            'multi_item_orders'    => (bool) ($preset['multi_item_orders'] ?? false),
             'location_enabled'     => (bool) ($loc['enabled'] ?? false),
             'location_singular'    => (string) ($loc['singular'] ?? ''),
             'location_plural'      => (string) ($loc['plural'] ?? ''),

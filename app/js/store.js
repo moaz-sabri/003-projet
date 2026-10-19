@@ -10,6 +10,7 @@
   var IDEMPOTENCY_KEY = 'lc_idem_v1';
   var CACHE_KEY = 'lc_catalog_cache_v1';
   var LAST_ORDER_KEY = 'lc_last_order_v1';
+  var LAYOUT_KEY = 'lc_layout_v1';
 
   var Store = {
     snapshot: null,
@@ -19,6 +20,7 @@
     settings: {},
     company: {},
     loadedFromCache: false,
+    layout: 'grid',
 
     /* ---------------------------- الوضع ---------------------------- */
 
@@ -30,6 +32,31 @@
     /** هل يعرض المشروع نظام طلبات؟ */
     hasOrdering: function () {
       return (this.config && this.config.has_ordering === false) ? false : true;
+    },
+
+    /**
+     * هل يقبل الطلب أكثر من صنف واحد؟
+     * المطعم/المقهى والمتجر فقط؛ بقية الأنشطة: صنف واحد بلا أصناف أخرى.
+     * القيمة الافتراضية true حتى لا تتعطّل النسخ المحفوظة القديمة.
+     */
+    allowsMultiItems: function () {
+      return !(this.config && this.config.multi_item_orders === false);
+    },
+
+    /* ------------------------- تفضيلات العرض ------------------------- */
+
+    /** تفضيل الزبون لعرض المنتجات: 'grid' مربعات | 'list' صفوف منفردة. */
+    loadLayout: function () {
+      try {
+        this.layout = localStorage.getItem(LAYOUT_KEY) === 'list' ? 'list' : 'grid';
+      } catch (e) { this.layout = 'grid'; }
+      return this.layout;
+    },
+
+    setLayout: function (layout) {
+      this.layout = layout === 'list' ? 'list' : 'grid';
+      try { localStorage.setItem(LAYOUT_KEY, this.layout); } catch (e) { /* تجاهل */ }
+      return this.layout;
     },
 
     /* -------------------- تسميات حسب نوع النشاط -------------------- */

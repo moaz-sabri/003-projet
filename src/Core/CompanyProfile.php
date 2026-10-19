@@ -186,6 +186,15 @@ final class CompanyProfile
         $brand['tagline'] = self::text($brand['tagline'] ?? '') ?: (string) ($fromDb['tagline'] ?? '');
         $brand['logo']    = self::image($brand['logo'] ?? '') ?: (string) ($fromDb['logo'] ?? '');
 
+        /*
+         * نبذة الصفحة الرئيسية: ما يكتبه المدير في الإعدادات يتقدّم على نص الملف،
+         * لأن الحقل معلن في لوحة الإدارة على أنه قابل للتعديل من هناك — وإلا
+         * بقي تعديله بلا أثر ما دام في company.json نص (وأي نص قديم فيه).
+         * كلاهما أفضل من النص الثابت الذي كان يُزرع وقت التهيئة.
+         */
+        $about['summary'] = self::text($fromDb['about_summary'] ?? '', 1200)
+            ?: self::text($about['summary'] ?? '', 1200);
+
         $contact['phone']     = self::text($contact['phone'] ?? '') ?: (string) ($fromDb['phone'] ?? '');
         $contact['instagram'] = self::text($contact['instagram'] ?? '') ?: (string) ($fromDb['instagram'] ?? '');
         unset($fromDb['name'], $fromDb['tagline'], $fromDb['logo'], $fromDb['phone'], $fromDb['instagram']);
@@ -278,6 +287,7 @@ final class CompanyProfile
                 'name'      => (string) ($s['app_name'] ?? ''),
                 'tagline'   => (string) ($s['app_tagline'] ?? ''),
                 'logo'      => (string) ($s['logo_path'] ?? ''),
+                'about_summary' => (string) ($s['about_summary'] ?? ''),
                 'phone'     => (string) ($s['contact_phone'] ?? ''),
                 'instagram' => (string) ($s['contact_instagram'] ?? ''),
             ];

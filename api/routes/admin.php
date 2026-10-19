@@ -221,6 +221,7 @@ $router->get('admin.products', function (Request $request) use ($requireAuth): v
             'singular'  => ProjectConfig::productSingular(),
             'plural'    => ProjectConfig::productPlural(),
             'catalog'   => ProjectConfig::catalogTitle(),
+            'max_items' => ProjectConfig::MAX_CATALOG_ITEMS,
         ],
     ]);
 });
@@ -286,8 +287,19 @@ $validateProduct = static function (array $data): array {
 $router->post('admin.product.create', function (Request $request) use ($body, $requireAdmin, $validateProduct): void {
     $requireAdmin($request);
     $data = $validateProduct($body($request));
-    $id   = (new ProductRepository())->create($data);
-    Response::ok(['id' => $id, 'products' => (new ProductRepository())->allAdmin()], 201);
+
+    // حدّ القالب: لا نقبل أكثر من MAX_CATALOG_ITEMS عنصرًا في القائمة
+    $repo = new ProductRepository();
+    if ($repo->count() >= ProjectConfig::MAX_CATALOG_ITEMS) {
+        throw new HttpError(
+            'catalog_limit',
+            'بلغت القائمة حدّها الأقصى (' . ProjectConfig::MAX_CATALOG_ITEMS . ' عنصرًا). احذف عنصرًا قبل إضافة آخر.',
+            422
+        );
+    }
+
+    $id = $repo->create($data);
+    Response::ok(['id' => $id, 'products' => $repo->allAdmin()], 201);
 });
 
 $router->post('admin.product.update', function (Request $request) use ($body, $requireAdmin, $validateProduct): void {
@@ -514,6 +526,7 @@ $router->post('admin.settings.update', function (Request $request) use ($body, $
     $v = Validator::make($data);
     $v->string('app_name', 'اسم النشاط', 1, 80)
       ->string('app_tagline', 'الوصف', 0, 160)
+      ->string('about_summary', 'نبذة الصفحة الرئيسية', 0, 1200)
       ->string('welcome_message', 'رسالة الترحيب', 0, 500)
       ->string('contact_phone', 'الهاتف', 0, 30)
       ->string('contact_instagram', 'حساب إنستغرام', 0, 60)
@@ -530,6 +543,10 @@ $router->post('admin.settings.update', function (Request $request) use ($body, $
         if (array_key_exists($key, $data)) {
             $pairs[$key] = mb_substr(trim((string) $data[$key]), 0, 500);
         }
+    }
+    // نبذة الصفحة الرئيسية أطول من بقية الحقول (سطران فأكثر)
+    if (array_key_exists('about_summary', $data)) {
+        $pairs['about_summary'] = mb_substr(trim((string) $data['about_summary']), 0, 1200);
     }
     foreach (['show_welcome', 'show_search', 'show_contact', 'show_prices'] as $flag) {
         if (array_key_exists($flag, $data)) {

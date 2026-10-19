@@ -152,7 +152,8 @@ final class Migrations
         self::validateFieldDefinitions();
         self::backfillExtraFields();
         self::seedSettings();
-        self::seedCategories();
+        // لا تصنيفات افتراضية: النسخة الجديدة تبدأ بقائمة فارغة، والمدير
+        // هو من يبني تصنيفاته. (قرار المستخدم — التعديل الأول في 1.5.0)
     }
 
     /**
@@ -324,25 +325,6 @@ final class Migrations
                 'INSERT INTO settings (key, value) VALUES (:k, :v) ON CONFLICT(key) DO NOTHING',
                 ['k' => $key, 'v' => (string) $value]
             );
-        }
-    }
-
-    /** تصنيفات ابتدائية لمطعم — يمكن للمدير حذفها أو تعديلها فورًا. */
-    public static function seedCategories(): void
-    {
-        $count = (int) Database::value('SELECT COUNT(*) FROM categories');
-        if ($count > 0) {
-            return;
-        }
-        $defaults = ['المشروبات الساخنة', 'المشروبات الباردة', 'الأكل', 'حلويات'];
-        foreach ($defaults as $i => $name) {
-            Database::insert('categories', [
-                'name'       => $name,
-                'sort_order' => ($i + 1) * 10,
-                'is_active'  => 1,
-                'created_at' => Database::now(),
-                'updated_at' => Database::now(),
-            ]);
         }
     }
 

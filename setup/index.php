@@ -66,7 +66,7 @@ $buildCompanyJson = static function (array $preset, string $name, string $taglin
             'cover_image' => '',
         ],
         'about' => [
-            'summary'    => 'اكتب هنا نبذة من سطرين تصف نشاطك: ماذا تقدّم ولمن.',
+            'summary'    => '',
             'story'      => '',
             'highlights' => [],
             'gallery'    => [],

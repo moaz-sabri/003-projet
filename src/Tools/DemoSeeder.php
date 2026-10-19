@@ -20,6 +20,22 @@ final class DemoSeeder
             $categoryIds[$category['name']] = (int) $category['id'];
         }
 
+        /*
+         * التصنيفات تُنشأ الآن من المدير لا من التهيئة (لا تصنيفات افتراضية).
+         * أمر seed:demo يبقى قادرًا على العمل وحده: ينشئ ما ينقصه فقط.
+         */
+        $defaults = ['المشروبات الساخنة', 'المشروبات الباردة', 'الأكل', 'حلويات'];
+        foreach ($defaults as $i => $name) {
+            if (isset($categoryIds[$name])) {
+                continue;
+            }
+            $categoryIds[$name] = (int) Database::insert('categories', [
+                'name'       => $name,
+                'sort_order' => ($i + 1) * 10,
+                'is_active'  => 1,
+            ]);
+        }
+
         // [الاسم، التصنيف، السعر، الوصف، نباتي، حار، السعرات، تفاصيل]
         $products = [
             ['قهوة عربية', 'المشروبات الساخنة', 12000,

@@ -22,6 +22,13 @@ final class ProductRepository
         ));
     }
 
+    /** عدد المنتجات الكلي — يُفرض به حدّ القالب عند الإنشاء من الإدارة. */
+    public function count(): int
+    {
+        $rows = Database::all('SELECT COUNT(*) AS total FROM products');
+        return (int) ($rows[0]['total'] ?? 0);
+    }
+
     /** الكتالوج العام: المتاح فقط، مع الحقول المطلوبة للعرض دون اتصال. */
     public function catalog(?string $categoryCode = null, ?string $search = null): array
     {
@@ -165,7 +172,7 @@ final class ProductRepository
     }
 
     /** وسوم قصيرة تظهر في بطاقة المنتج (مثل: نباتي، حار). */
-    private function tags(array $extra): array
+    public function tags(array $extra): array
     {
         $tags = [];
         foreach (ProjectConfig::productExtraFields() as $field) {

@@ -16,7 +16,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="القائمة">
 
-  <link rel="stylesheet" href="css/app.css?v=1.4.0">
+  <link rel="stylesheet" href="css/app.css?v=1.5.0">
+
+  <!-- الوضع الفاتح/الغامق: يُحمَّل قبل الرسم لمنع وميض اللون الخاطئ -->
+  <script src="js/theme.js?v=1.5.0"></script>
 </head>
 <body data-mode="orders">
 
@@ -47,6 +50,18 @@
     </a>
 
     <div class="header-actions">
+      <button class="icon-btn theme-btn" id="theme-toggle" type="button" aria-pressed="false" aria-label="بدّل إلى الوضع الغامق" title="بدّل إلى الوضع الغامق">
+        <svg class="ico-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                d="M12 2.8v2.1M12 19.1v2.1M4.5 4.5 6 6M18 18l1.5 1.5M2.8 12h2.1M19.1 12h2.1M4.5 19.5 6 18M18 6l1.5-1.5"/>
+        </svg>
+        <svg class="ico-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"
+                d="M20.2 14.6A8.6 8.6 0 0 1 9.4 3.8a8.6 8.6 0 1 0 10.8 10.8Z"/>
+        </svg>
+      </button>
+
       <span class="loc-chip" id="loc-chip" hidden>
         <span class="loc-dot" aria-hidden="true"></span>
         <span id="loc-chip-text"></span>
@@ -92,6 +107,10 @@
         <img id="hero-image" alt="">
       </div>
       <div class="hero-body">
+        <!-- الشعار: كبير في منتصف الصفحة، وتحته اسم المشروع ثم النبذة -->
+        <div class="hero-logo" id="hero-logo" hidden>
+          <img id="hero-logo-img" alt="">
+        </div>
         <p class="hero-eyebrow" id="hero-eyebrow" hidden></p>
         <h1 class="hero-title" id="hero-title"></h1>
         <p class="hero-text" id="hero-text" hidden></p>
@@ -135,14 +154,35 @@
     </div>
 
     <div class="catalog-toolbar" id="catalog-toolbar">
-      <div class="search-wrap" id="search-wrap">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
-          <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <input type="search" id="search-input" placeholder="ابحث…" autocomplete="off" enterkeyhint="search" aria-label="ابحث في المنتجات">
-        <button class="search-clear" id="search-clear" type="button" aria-label="مسح البحث" hidden>×</button>
+      <div class="toolbar-row">
+        <div class="search-wrap" id="search-wrap">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <input type="search" id="search-input" placeholder="ابحث…" autocomplete="off" enterkeyhint="search" aria-label="ابحث في المنتجات">
+          <button class="search-clear" id="search-clear" type="button" aria-label="مسح البحث" hidden>×</button>
+        </div>
+
+        <!-- تبديل طريقة العرض: مربعات أو صفوف منفردة -->
+        <div class="layout-switch" id="layout-switch" role="group" aria-label="طريقة عرض المنتجات">
+          <button type="button" class="layout-btn" id="layout-grid" data-layout="grid" aria-pressed="true" aria-label="عرض كمربعات">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+              <rect x="3.5" y="3.5" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+              <rect x="13.5" y="3.5" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+              <rect x="3.5" y="13.5" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+              <rect x="13.5" y="13.5" width="7" height="7" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </button>
+          <button type="button" class="layout-btn" id="layout-list" data-layout="list" aria-pressed="false" aria-label="عرض كصفوف">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+              <rect x="3.5" y="4.5" width="17" height="5" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+              <rect x="3.5" y="14.5" width="17" height="5" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </button>
+        </div>
       </div>
+
       <nav class="tabs" id="category-tabs" aria-label="التصنيفات" role="tablist"></nav>
     </div>
 
@@ -154,6 +194,13 @@
       <p class="empty-title" id="menu-empty-title">لا توجد منتجات</p>
       <p class="empty-text" id="menu-empty-text"></p>
     </div>
+  </section>
+
+  <!-- =================================================================
+       صفحة المنتج المنفردة: نسخة أكبر من النافذة المنبثقة للنصوص الطويلة
+       ================================================================= -->
+  <section class="view" id="view-product" hidden>
+    <div class="product-page" id="product-page"></div>
   </section>
 
   <!-- =================================================================
@@ -290,7 +337,6 @@
 <!-- تفاصيل المنتج -->
 <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
 <aside class="sheet" id="product-sheet" hidden aria-modal="true" role="dialog" aria-label="تفاصيل المنتج">
-  <div class="sheet-handle" aria-hidden="true"></div>
   <button class="sheet-close" id="sheet-close" type="button" aria-label="إغلاق">×</button>
   <div class="sheet-body" id="sheet-body"></div>
   <div class="sheet-footer" id="sheet-footer" hidden>
@@ -328,9 +374,9 @@
   <div class="noscript">هذا الموقع يحتاج تفعيل JavaScript في المتصفح لعرض المنتجات والمعلومات.</div>
 </noscript>
 
-<script src="js/api.js?v=1.4.0"></script>
-<script src="js/store.js?v=1.4.0"></script>
-<script src="js/ui.js?v=1.4.0"></script>
-<script src="js/app.js?v=1.4.0"></script>
+<script src="js/api.js?v=1.5.0"></script>
+<script src="js/store.js?v=1.5.0"></script>
+<script src="js/ui.js?v=1.5.0"></script>
+<script src="js/app.js?v=1.5.0"></script>
 </body>
 </html>

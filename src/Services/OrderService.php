@@ -293,6 +293,19 @@ final class OrderService
             throw new HttpError('empty_cart', 'لا توجد عناصر صالحة في السلة.', 422);
         }
 
+        /*
+         * (2.5) حدّ الأصناف: بعض الأنشطة (العيادة، الاستوديو…) طلبها صنف واحد
+         * فقط. الفحص هنا على السيرفر لا في الواجهة فقط، فلا يُتجاوَز بإرسال
+         * الطلب مباشرة. تكرار المنتج نفسه مدموج في كمية واحدة، فهو مسموح.
+         */
+        if (!ProjectConfig::allowsMultiItems() && count($merged) > 1) {
+            throw new HttpError(
+                'single_item_only',
+                'هذا النشاط يستقبل صنفًا واحدًا في الطلب. أزل بقية الأصناف ثم أعد الإرسال.',
+                422
+            );
+        }
+
         // (2) لا نثق بسعر الواجهة إطلاقًا
         $products = Database::all(
             'SELECT id, name, price_minor, is_available, extra_json FROM products WHERE id IN (' .

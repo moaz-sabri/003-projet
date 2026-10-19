@@ -685,6 +685,7 @@
 
   function renderProducts() {
     var container = $('products-table');
+    syncProductLimit();
     if (!state.products.length) {
       container.innerHTML = '<p class="empty">لا توجد منتجات. أضف أول منتج.</p>';
       return;
@@ -712,6 +713,28 @@
           '</td>' +
         '</tr>';
       }).join('') + '</tbody></table>';
+  }
+
+  /**
+   * حدّ القالب: عند بلوغ MAX_CATALOG_ITEMS يُقفل زر الإضافة ويظهر تنبيه
+   * يشرح السبب. الخادم يفرض الحدّ نفسه، فهذا إرشاد للواجهة لا حماية.
+   */
+  function syncProductLimit() {
+    var btn = $('product-new');
+    var hint = $('product-limit-hint');
+    var max = (state.labels && Number(state.labels.max_items)) || 0;
+    var full = max > 0 && state.products.length >= max;
+
+    if (btn) {
+      btn.disabled = full;
+      btn.title = full ? 'بلغت القائمة حدّها الأقصى (' + max + ' عنصرًا)' : '';
+    }
+    if (hint) {
+      hint.hidden = !full;
+      hint.textContent = full
+        ? 'بلغت القائمة الحدّ الأقصى (' + max + ' عنصرًا). احذف عنصرًا قبل إضافة آخر.'
+        : '';
+    }
   }
 
   function editProduct(id) {
@@ -1033,6 +1056,8 @@
     form.innerHTML = '' +
       '<div class="field"><label>اسم النشاط</label><input id="s-name" value="' + escapeHtml(s.app_name || '') + '" maxlength="80"></div>' +
       '<div class="field"><label>وصف قصير</label><input id="s-tagline" value="' + escapeHtml(s.app_tagline || '') + '" maxlength="160"></div>' +
+      '<div class="field full"><label>نبذة الصفحة الرئيسية</label><textarea id="s-about" maxlength="1200" placeholder="سطران يصفان نشاطك: ماذا تقدّم ولمن.">' + escapeHtml(s.about_summary || '') + '</textarea>' +
+        '<div class="field-hint">تظهر في الصفحة الرئيسية أسفل الشعار واسم المشروع. اتركها فارغة لاعتماد نص ملف company.json.</div></div>' +
       '<div class="field full"><label>رسالة الترحيب</label><textarea id="s-welcome" maxlength="500">' + escapeHtml(s.welcome_message || '') + '</textarea></div>' +
       '<div class="field"><label>الشعار</label><input type="file" id="s-logo" accept="image/png,image/jpeg,image/webp,image/gif">' +
         (s.logo_path ? '<div class="field-hint">الشعار الحالي: ' + escapeHtml(s.logo_path) + '</div>' : '') + '</div>' +
@@ -1053,7 +1078,7 @@
       var btn = form.querySelector('button[type="submit"]');
       setLoading(btn, true, 'جارٍ الحفظ…');
       var fd = new FormData();
-      ['app_name:s-name', 'app_tagline:s-tagline', 'welcome_message:s-welcome',
+      ['app_name:s-name', 'app_tagline:s-tagline', 'about_summary:s-about', 'welcome_message:s-welcome',
        'contact_phone:s-phone', 'contact_instagram:s-instagram'].forEach(function (pair) {
         var parts = pair.split(':');
         fd.append(parts[0], $(parts[1]).value);

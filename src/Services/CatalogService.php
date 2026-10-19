@@ -103,6 +103,7 @@ final class CatalogService
             'catalog_cta'     => ProjectConfig::catalogCta(),
             'order_cta'       => ProjectConfig::orderCta(),
             'home_hero_title' => ProjectConfig::homeHeroTitle(),
+            'multi_item_orders' => ProjectConfig::allowsMultiItems(),
 
             'location_singular' => ProjectConfig::locationSingular(),
             'location_plural'   => ProjectConfig::locationPlural(),
@@ -143,10 +144,14 @@ final class CatalogService
             return null;
         }
 
-        $repo    = new ProductRepository();
-        $extra   = json_decode((string) $row['extra_json'], true) ?: [];
-        $details = $repo->detailFields($row);
+        $repository = $this->products;
+        $extra      = json_decode((string) $row['extra_json'], true) ?: [];
+        $details    = $repository->detailFields($row);
 
+        /*
+         * نفس حقول بطاقة الكتالوج (extra/tags/has_details) حتى لا تفقد النافذة
+         * رابط «عرض التفاصيل الكاملة» بعد استبدال النسخة المحلية بنسخة الخادم.
+         */
         return [
             'id'          => (int) $row['id'],
             'name'        => (string) $row['name'],
@@ -157,6 +162,9 @@ final class CatalogService
             'category'    => (string) ($row['category_name'] ?? ''),
             'available'   => true,
             'details'     => $details,
+            'extra'       => $extra,
+            'tags'        => $repository->tags($extra),
+            'has_details' => $repository->hasDetails($row, $extra),
         ];
     }
 

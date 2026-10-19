@@ -79,10 +79,10 @@ final class ProjectConfig
      * ===================================================================== */
 
     /** رقم إصدار القالب (دلالي). */
-    public const VERSION = '1.4.0';
+    public const VERSION = '1.5.0';
 
     /** تاريخ اعتماد هذه النسخة. */
-    public const RELEASED_AT = '2026-10-18';
+    public const RELEASED_AT = '2026-10-19';
 
     /* =====================================================================
      * أ. وضع المشروع: مع نظام طلبات أم عرض فقط
@@ -105,6 +105,17 @@ final class ProjectConfig
     public static function hasOrdering(): bool
     {
         return self::mode() === self::MODE_ORDERS;
+    }
+
+    /**
+     * هل يقبل الطلب أكثر من صنف واحد؟
+     * المطعم/المقهى والمتجر فقط: بقية الأنشطة طلبها صنف واحد بلا تكرار،
+     * ويُفرض ذلك في السيرفر (OrderService::resolveItems) وفي الواجهة معًا.
+     */
+    public static function allowsMultiItems(): bool
+    {
+        $default = in_array(self::presetId(), ['restaurant', 'store'], true);
+        return (bool) self::ov('multi_item_orders', $default);
     }
 
     /** معرّف نوع النشاط المختار (restaurant, store, showroom, ...). */
@@ -204,6 +215,12 @@ final class ProjectConfig
 
     /** أقصى عدد منتجات في صفحة القائمة ( paging ) */
     public const CATALOG_PAGE_SIZE = 200;
+
+    /**
+     * الحد الأقصى لعدد عناصر القالب الأساسي في القائمة.
+     * يُفرض عند الإنشاء من لوحة الإدارة، ويُعلَن للواجهة لتُقفل زر الإضافة.
+     */
+    public const MAX_CATALOG_ITEMS = 100;
 
     /* =====================================================================
      * د. نوع النشاط والمواقع
@@ -657,6 +674,7 @@ final class ProjectConfig
             'app_tagline'         => self::DEFAULT_APP_TAGLINE,
             'welcome_message'     => self::DEFAULT_WELCOME_MESSAGE,
             'logo_path'           => '',
+            'about_summary'       => '',   // نبذة الصفحة الرئيسية القابلة للتعديل
             'contact_phone'       => '',
             'contact_instagram'   => '',
             'show_welcome'        => '1',

@@ -25,7 +25,7 @@
    * contact  صفحة التواصل
    * cart / checkout / success / track  شاشات الطلبات (وضع الطلبات فقط)
    */
-  var VIEWS = ['home', 'products', 'contact', 'cart', 'checkout', 'success', 'track'];
+  var VIEWS = ['home', 'products', 'product', 'contact', 'cart', 'checkout', 'success', 'track'];
 
   /** شاشات لا معنى لها في وضع العرض فقط */
   var ORDER_VIEWS = ['cart', 'checkout', 'success', 'track'];
@@ -33,6 +33,7 @@
   var VIEW_TITLES = {
     home: null,
     products: 'المنتجات',
+    product: null,
     contact: 'تواصل معنا',
     cart: 'السلة',
     checkout: 'إتمام الطلب',
@@ -47,7 +48,8 @@
     orderType: '',
     location: null,
     submitting: false,
-    trackingToken: ''
+    trackingToken: '',
+    productId: 0
   };
 
   /* ============================== التوجيه ============================== */
@@ -64,6 +66,12 @@
       var path = location.pathname || '/';
       if (BASE !== '/' && path.indexOf(BASE) === 0) path = path.slice(BASE.length);
       return strip(path);
+    },
+
+    /** رابط حقيقي لفتح مسار في تبويب جديد أو نسخه (يعمل مع وضع hash أيضًا). */
+    href: function (path) {
+      path = strip(path || '');
+      return Router.mode === 'hash' ? BASE + '#/' + path : BASE + path;
     },
 
     /** الانتقال إلى مسار داخلي: '' | 'cart' | 'order/TOKEN' */
@@ -163,9 +171,22 @@
 
       case 'product':
         if (route.arg) {
-          // يُفتح فوق صفحة المنتجات دائمًا (أو الجذر إن لم تُحمّل بعد)
-          show(Store.snapshot ? 'products' : 'products');
-          openProductDetails(parseInt(route.arg, 10));
+          state.productId = parseInt(route.arg, 10) || 0;
+          /* النافذة المنبثقة (إن كانت مفتوحة) تُغلق: المسار يفتح الصفحة المنفردة */
+          closeSheet();
+
+          if (!findProduct(state.productId)) {
+            /* الكتالوج لم يصل بعد: نعرض حالة التحميل ثم نعيد التوجيه */
+            if (Store.snapshot === null) {
+              show('product');
+              loadCatalog().then(function () { render(); });
+              return;
+            }
+            UI.toast('هذا المنتج لم يعد متاحًا.', 'warn');
+            return unknownRoute();
+          }
+
+          show('product');
           return;
         }
         return unknownRoute();
@@ -213,6 +234,7 @@
     if (name === 'home') UI.renderHome();
     if (name === 'contact') UI.renderContact();
     if (name === 'products') renderMenu();
+    if (name === 'product') loadProductPage();
     if (name === 'cart') UI.renderCart();
     if (name === 'checkout') prepareCheckout();
     if (name === 'success') restoreLastSuccess();
@@ -257,6 +279,10 @@
     var company = Store.company || {};
     var app = (company.brand && company.brand.name) || (Store.settings && Store.settings.app_name) || '';
     var title = VIEW_TITLES[state.view];
+    if (state.view === 'product') {
+      var shown = findProduct(state.productId);
+      if (shown) title = shown.name;
+    }
     if (title === null || title === undefined) {
       document.title = app;
     } else {
@@ -377,6 +403,22 @@
 
   /* ============================== المنتج ============================== */
 
+  /*
+   * الصفحة المنفردة: نعرض النسخة المحلية فورًا، ثم نستبدلها بتفاصيل الخادم
+   * الكاملة إن كان المنتج يستحقها. بذلك تظهر الحقول الإضافية والنص كاملًا
+   * في مساحة أكبر من النافذة المنبثقة.
+   */
+  function loadProductPage() {
+    var local = findProduct(state.productId);
+    UI.renderProductPage(local);
+
+    if (!local || !local.has_details) return;
+    var id = local.id;
+    Api.product(id).then(function (detail) {
+      if (state.view === 'product' && state.productId === id) UI.renderProductPage(detail);
+    }).catch(function () { /* نكتفي بالنسخة المحلية */ });
+  }
+
   function openProductDetails(id) {
     var local = findProduct(id);
     if (!local) {
@@ -386,10 +428,10 @@
         return;
       }
       UI.toast('هذا المنتج لم يعد متاحًا.', 'warn');
-      Router.go('', true);
       return;
     }
 
+    state.productId = id;
     UI.renderProductSheet(local, Store.config || {});
 
     /*
@@ -415,10 +457,11 @@
   }
 
   function closeSheet() {
-    $('product-sheet').hidden = true;
+    var sheet = $('product-sheet');
+    if (!sheet || sheet.hidden) return;
+    sheet.hidden = true;
     $('sheet-backdrop').hidden = true;
     document.body.style.overflow = '';
-    if (Router.route().indexOf('product/') === 0) Router.go('', true);
   }
 
   function findProduct(id) {
@@ -437,6 +480,16 @@
 
     if (product.available === false) {
       UI.toast('هذا المنتج لم يعد متاحًا.', 'warn');
+      return;
+    }
+
+    /*
+     * أنشطة العنصر الواحد (عيادة، استوديو، عرض عام…): لا يُقبل صنف ثانٍ
+     * في الطلب. تكرار المنتج نفسه مسموح لأنه زيادة كمية لا صنف جديد.
+     * الحماية الحقيقية في السيرفر أيضًا (OrderService::resolveItems).
+     */
+    if (!Store.allowsMultiItems() && Store.cart.length && Store.quantityOf(id) === 0) {
+      UI.toast('هذا النشاط يستقبل صنفًا واحدًا في الطلب. أفرغ السلة لإضافة صنف آخر.', 'warn');
       return;
     }
 
@@ -625,6 +678,11 @@
   /* =============================== الأحداث =============================== */
 
   function bindEvents() {
+    // الوضع الفاتح/الغامق (المفتاح في الرأس)
+    $('theme-toggle').addEventListener('click', function () {
+      if (global.App.Theme) global.App.Theme.toggle();
+    });
+
     // التنقل
     $('cart-button').addEventListener('click', function () { Router.go('cart'); });
     $('cart-fab').addEventListener('click', function () { Router.go('cart'); });
@@ -715,6 +773,14 @@
       searchInput.focus();
     });
 
+    // تبديل طريقة العرض: مربعات أو صفوف منفردة
+    $('layout-switch').addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-layout]');
+      if (!btn) return;
+      Store.setLayout(btn.getAttribute('data-layout'));
+      UI.applyLayout();
+    });
+
     // بطاقات المنتجات
     $('product-grid').addEventListener('click', function (event) {
       var addBtn = event.target.closest('[data-add]');
@@ -751,6 +817,20 @@
         var qty = parseInt($('sheet-qty').textContent, 10);
         closeSheet();
         if (id) addToCart(id, qty);
+      }
+    });
+
+    // صفحة المنتج المنفردة: الكمية والإضافة إلى السلة
+    $('product-page').addEventListener('click', function (event) {
+      var step = event.target.closest('[data-page-step]');
+      if (step) {
+        var value = parseInt($('page-qty').textContent, 10) + parseInt(step.getAttribute('data-page-step'), 10);
+        $('page-qty').textContent = Math.max(1, Math.min(99, value));
+        return;
+      }
+      if (event.target.id === 'page-add') {
+        var qty = parseInt($('page-qty').textContent, 10);
+        if (state.productId) addToCart(state.productId, qty);
       }
     });
 
@@ -861,6 +941,7 @@
   function boot() {
     Store.loadCart();
     Store.loadLocation();
+    Store.loadLayout();
     state.location = Store.location;
 
     $('brand-link').setAttribute('href', HOME);
@@ -873,6 +954,9 @@
     $('nav-contact-link').setAttribute('href', BASE + 'contact');
 
     bindEvents();
+
+    // مزامنة مفتاح الوضع مع الحالة الظاهرة (تعمل theme.js قبل بناء الصفحة)
+    if (global.App.Theme) global.App.Theme.sync();
 
     // احترام الرابط المباشر عند الفتح (رابط QR أو صفحة مشاركة)
     render();

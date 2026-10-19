@@ -276,7 +276,7 @@ renderBrand: function (settings, config) {
       var about = company.about || {};
       var cta = company.cta || {};
 
-      /* --- الغلاف: صورة + اسم + وصف + زر --- */
+      /* --- الغلاف: شعار + صورة + اسم + وصف + زر --- */
       var heroImage = brand.hero_image || brand.cover_image;
       if (heroImage) {
         $('hero-image').src = heroImage;
@@ -284,6 +284,23 @@ renderBrand: function (settings, config) {
         UI.setHidden($('hero-media'), false);
       } else {
         UI.setHidden($('hero-media'), true);
+      }
+
+      /*
+       * الشعار في منتصف الصفحة الرئيسية: كبير/متوسط وتحته اسم المشروع.
+       * مصدره company.json ثم إعدادات لوحة الإدارة (نفس ترتيب الرأس).
+       */
+      var heroLogo = $('hero-logo');
+      var logoSrc = brand.logo || store.settings.logo_path || '';
+      if (heroLogo) {
+        if (logoSrc) {
+          var logoImg = $('hero-logo-img');
+          if (logoImg.getAttribute('src') !== logoSrc) logoImg.src = logoSrc;
+          logoImg.alt = brand.name || store.settings.app_name || '';
+          UI.setHidden(heroLogo, false);
+        } else {
+          UI.setHidden(heroLogo, true);
+        }
       }
 
       $('hero-title').textContent = brand.name || store.settings.app_name || '';
@@ -552,10 +569,27 @@ renderBrand: function (settings, config) {
       if (box) UI.setHidden(box, true);
     },
 
+    /**
+     * يطبّق تفضيل العرض المحفوظ (مربعات / صفوف منفردة) على شبكة المنتجات
+     * وعلى مفتاح التبديل. التفضيل محلي في المتصفح ولا يُخزَّن على الخادم.
+     */
+    applyLayout: function () {
+      var layout = global.App.Store.layout === 'list' ? 'list' : 'grid';
+      var grid = $('product-grid');
+      if (grid) grid.classList.toggle('is-list', layout === 'list');
+
+      ['grid', 'list'].forEach(function (name) {
+        var btn = $('layout-' + name);
+        if (btn) btn.setAttribute('aria-pressed', name === layout ? 'true' : 'false');
+      });
+    },
+
 renderProducts: function (products, filters) {
       var grid = $('product-grid');
       var empty = $('menu-empty');
       if (!grid) return;
+
+      UI.applyLayout();
 
       var store = global.App.Store;
       var ordering = store.hasOrdering();
@@ -609,14 +643,11 @@ renderProducts: function (products, filters) {
         }
 
         /*
-         * بلا نظام طلبات البطاقة تُفتح دائمًا: فتحها هو الطريقة الوحيدة
-         * للوصول إلى التفاصيل، فلا يبقى للمنتج إلا صورة واسم وسعر.
+         * كل بطاقة تُفتح: الضغط عليها يعرض نافذة منبثقة متوسطة بالتفاصيل،
+         * وإن كان للمنتج نص طويل يُفتح من داخلها رابط إلى صفحة منفردة أكبر.
          */
-        var openable = product.has_details || !ordering;
-
-        return '<article class="product-card' + (product.available === false ? ' is-out' : '') +
-          (openable ? ' is-openable' : '') + '"' +
-          (openable ? ' data-detail="' + product.id + '" role="button" tabindex="0"' : '') + '>' +
+        return '<article class="product-card' + (product.available === false ? ' is-out' : '') + ' is-openable"' +
+          ' data-detail="' + product.id + '" role="button" tabindex="0">' +
           '<div class="card-media">' + media +
             '<div class="card-badges">' + tags + soldBadge + '</div>' +
           '</div>' +
@@ -809,16 +840,90 @@ renderProducts: function (products, filters) {
         return '<div class="detail-row"><dt>' + UI.escape(d.label) + '</dt><dd>' + UI.escape(value) + '</dd></div>';
       }).join('');
 
+      /*
+       * النافذة متوسطة الحجم عمداً؛ فالنص الطويل يُقرأ فيها ملتفًا.
+       * عند وجود تفاصيل نقترح الصفحة المنفردة الأكبر التي تُظهر النص كاملًا.
+       */
+      var fullPage = '';
+      if (product.has_details && global.App.Router && global.App.Router.href) {
+        fullPage = '<a class="sheet-more" href="' +
+          UI.escape(global.App.Router.href('product/' + product.id)) +
+          '" data-go="product/' + product.id + '">عرض التفاصيل الكاملة في صفحة أكبر ↗</a>';
+      }
+
       body.innerHTML = media +
         '<h3 class="sheet-title">' + UI.escape(product.name) + '</h3>' +
         (global.App.Store.settings.show_prices === false ? '' :
           '<p class="sheet-price">' + UI.escape(product.price) + '</p>') +
         (tagHtml ? '<div class="sheet-tags">' + tagHtml + '</div>' : '') +
         (product.description ? '<p class="sheet-desc">' + UI.escape(product.description) + '</p>' : '') +
-        (details ? '<dl class="detail-list">' + details + '</dl>' : '');
+        (details ? '<dl class="detail-list">' + details + '</dl>' : '') +
+        fullPage;
 
       UI.setHidden(footer, !global.App.Store.hasOrdering() || product.available === false);
       if (qty) qty.textContent = '1';
+    },
+
+    /**
+     * صفحة المنتج المنفردة: نفس محتوى النافذة لكن بمساحة أكبر للنص الطويل.
+     * تُفتح من رابط product/{id} ومن رابط «عرض التفاصيل الكاملة» داخل النافذة.
+     */
+    renderProductPage: function (product) {
+      var page = $('product-page');
+      if (!page) return;
+
+      if (!product) {
+        page.innerHTML = '<div class="notice">جارٍ تحميل ' +
+          UI.escape(global.App.Store.productSingular() || 'المنتج') + '…</div>';
+        return;
+      }
+
+      var store = global.App.Store;
+
+      var media = product.image
+        ? '<div class="sheet-media"><img src="' + UI.escape(product.image) + '" alt="' + UI.escape(product.name) + '"></div>'
+        : '';
+
+      var tags = (product.extra || {});
+      var tagHtml = '';
+      Object.keys(tags).forEach(function (key) {
+        if (tags[key] === true || (typeof tags[key] === 'string' && tags[key] !== '')) {
+          tagHtml += '<span class="sheet-tag">' + UI.escape(key) + '</span>';
+        }
+      });
+
+      var details = (product.details || []).filter(function (d) {
+        return d.value !== '' && d.value !== null && d.value !== undefined && d.value !== false;
+      }).map(function (d) {
+        var value = d.value === true ? 'نعم' : (d.value === false ? 'لا' : d.value);
+        return '<div class="detail-row"><dt>' + UI.escape(d.label) + '</dt><dd>' + UI.escape(value) + '</dd></div>';
+      }).join('');
+
+      var ordering = store.hasOrdering() && product.available !== false;
+      var actions = '<div class="product-page-actions">' +
+        (ordering
+          ? '<div class="stepper">' +
+              '<button type="button" class="step-btn" data-page-step="-1" aria-label="إنقاص الكمية">−</button>' +
+              '<span class="step-value" id="page-qty">1</span>' +
+              '<button type="button" class="step-btn" data-page-step="1" aria-label="زيادة الكمية">+</button>' +
+            '</div>' +
+            '<button class="btn btn-primary" id="page-add" type="button">أضف إلى السلة</button>'
+          : '') +
+        '<a class="btn btn-ghost" href="' +
+          UI.escape(global.App.Router && global.App.Router.href ? global.App.Router.href('products') : '#') +
+          '" data-go="products">عودة إلى ' + UI.escape(store.productPlural()) + '</a>' +
+      '</div>';
+
+      page.innerHTML = media +
+        '<div class="product-page-panel">' +
+          '<h2 class="product-page-title">' + UI.escape(product.name) + '</h2>' +
+          (store.settings.show_prices === false ? '' :
+            '<p class="product-page-price">' + UI.escape(product.price) + '</p>') +
+          (tagHtml ? '<div class="sheet-tags">' + tagHtml + '</div>' : '') +
+          (product.description ? '<p class="product-page-desc">' + UI.escape(product.description) + '</p>' : '') +
+          (details ? '<dl class="detail-list">' + details + '</dl>' : '') +
+        '</div>' +
+        actions;
     },
 
     renderSuccess: function (order) {

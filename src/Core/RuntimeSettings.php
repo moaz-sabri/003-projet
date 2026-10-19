@@ -83,6 +83,7 @@ final class RuntimeSettings
             'app_tagline'     => self::get('app_tagline'),
             'welcome_message' => self::get('welcome_message'),
             'logo_path'       => self::assetUrl(self::get('logo_path')),
+            'about_summary'   => self::get('about_summary'),
             'contact_phone'   => self::get('contact_phone'),
             'contact_instagram' => self::get('contact_instagram'),
             'show_welcome'    => self::bool('show_welcome'),
