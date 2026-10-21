@@ -217,6 +217,7 @@ $router->get('admin.products', function (Request $request) use ($requireAuth): v
         'categories'    => (new CategoryRepository())->all(),
         'fields'        => ProjectConfig::productExtraFields(),
         'detail_fields' => ProjectConfig::productDetailFields(),
+        'gallery_enabled' => ProjectConfig::feature('product_gallery'),
         'labels'        => [
             'singular'  => ProjectConfig::productSingular(),
             'plural'    => ProjectConfig::productPlural(),
@@ -280,6 +281,29 @@ $validateProduct = static function (array $data): array {
             $extra[$key] = mb_substr(trim($val), 0, 1200);
         }
     }
+
+    /*
+     * معرض المنتج: مسارات رفع فقط (products/xxx.ext)، بلا روابط خارجية.
+     * يُخزَّن داخل extra_json فلا يحتاج المخطط إلى هجرة جديدة.
+     */
+    if (ProjectConfig::feature('product_gallery')) {
+        $gallery = [];
+        $galleryInput = is_array($data['extra'] ?? null) ? ($data['extra']['gallery'] ?? []) : [];
+        if (is_array($galleryInput)) {
+            foreach (array_slice($galleryInput, 0, 8) as $item) {
+                $path = is_scalar($item) ? trim((string) $item) : '';
+                if ($path === '' || str_contains($path, '..') || str_starts_with($path, '/')) {
+                    continue;
+                }
+                if (!preg_match('#^products/[A-Za-z0-9._-]+\.(?:jpe?g|png|webp|gif)$#i', $path)) {
+                    continue;
+                }
+                $gallery[] = $path;
+            }
+        }
+        $extra['gallery'] = array_values(array_unique($gallery));
+    }
+
     $out['extra'] = $extra;
     return $out;
 };
@@ -316,6 +340,14 @@ $router->post('admin.product.update', function (Request $request) use ($body, $r
         $data['image_path'] = $existing['image_path'];
     }
     $repo->update($id, $data);
+
+    // حذف صور المعرض التي أزيلت من النموذج (لا نترك ملفات يتيمة).
+    $oldGallery = (array) ($existing['gallery_paths'] ?? []);
+    $newGallery = (array) ($data['extra']['gallery'] ?? []);
+    foreach (array_diff($oldGallery, $newGallery) as $removed) {
+        ImageUploader::delete($removed);
+    }
+
     Response::ok(['products' => $repo->allAdmin()]);
 });
 
@@ -328,6 +360,9 @@ $router->post('admin.product.delete', function (Request $request) use ($body, $r
         throw new HttpError('not_found', 'المنتج غير موجود.', 404);
     }
     ImageUploader::delete($existing['image_path']);
+    foreach ((array) ($existing['gallery_paths'] ?? []) as $galleryPath) {
+        ImageUploader::delete($galleryPath);
+    }
     $repo->delete($id);
     Response::ok(['products' => $repo->allAdmin()]);
 });
@@ -341,6 +376,31 @@ $router->post('admin.product.image', function (Request $request) use ($requireAd
     }
     $path = ImageUploader::store($file, 'products');
     Response::ok(['image_path' => $path, 'image' => ProjectConfig::uploadsUrl($path)], 201);
+});
+
+/**
+ * رفع عدة صور لمعرض المنتج (multipart، الحقل gallery[]).
+ * يعيد المسارات النسبية والروابط الجاهزة، والحد الأقصى 8 صور لكل منتج.
+ */
+$router->post('admin.product.gallery', function (Request $request) use ($requireAdmin): void {
+    $requireAdmin($request);
+    if (!ProjectConfig::feature('product_gallery')) {
+        throw new HttpError('disabled', 'معرض الصور غير مفعّل في هذا النمط.', 404);
+    }
+    $files = $request->files('gallery');
+    if ($files === []) {
+        throw new HttpError('missing_file', 'لم يتم اختيار صور.', 422);
+    }
+    if (count($files) > 8) {
+        throw new HttpError('too_many_files', 'الحد الأقصى 8 صور للمنتج الواحد.', 422);
+    }
+
+    $images = [];
+    foreach ($files as $file) {
+        $path = ImageUploader::store($file, 'products');
+        $images[] = ['path' => $path, 'url' => ProjectConfig::uploadsUrl($path)];
+    }
+    Response::ok(['images' => $images], 201);
 });
 
 /* ---------------------------- الطلبات ---------------------------- */
@@ -534,7 +594,28 @@ $router->post('admin.settings.update', function (Request $request) use ($body, $
       ->boolean('show_search')
       ->boolean('show_contact')
       ->boolean('show_prices')
+      // الصفحة الرئيسية: القيم الفارغة تعني «ورّث من company.json»
+      ->string('home_hero_eyebrow', 'النص العلوي للغلاف', 0, 120)
+      ->string('home_hero_title', 'عنوان الغلاف', 0, 120)
+      ->string('home_hero_text', 'نص الغلاف', 0, 1200)
+      ->string('home_primary_label', 'نص الزر الأساسي', 0, 60)
+      ->string('home_secondary_label', 'نص الزر الثانوي', 0, 60)
+      ->string('home_primary_url', 'رابط الزر الأساسي', 0, 300)
+      ->string('home_secondary_url', 'رابط الزر الثانوي', 0, 300)
+      ->in('home_layout', ['', 'classic', 'split', 'cover', 'spotlight'], 'تخطيط الصفحة الرئيسية')
+      ->in('home_height', ['', 'compact', 'large', 'full'], 'ارتفاع الغلاف')
       ->throwIfFails();
+
+    $homeFlags = [
+        'home_show_highlights', 'home_show_sections', 'home_show_gallery',
+        'home_show_stats', 'home_show_testimonials', 'home_show_faq',
+        'home_show_cta', 'home_show_contact',
+    ];
+    $flagValidator = Validator::make($data);
+    foreach ($homeFlags as $flag) {
+        $flagValidator->in($flag, ['', '0', '1'], $flag);
+    }
+    $flagValidator->throwIfFails();
 
     $allowed = ['app_name', 'app_tagline', 'welcome_message', 'contact_phone', 'contact_instagram'];
     $pairs   = [];
@@ -553,6 +634,49 @@ $router->post('admin.settings.update', function (Request $request) use ($body, $
             $pairs[$flag] = Validator::toBool($data[$flag]) ? '1' : '0';
         }
     }
+
+    /* --- تخصيص الصفحة الرئيسية --- */
+    $homeText = [
+        'home_hero_eyebrow'  => 120,
+        'home_hero_title'    => 120,
+        'home_hero_text'     => 1200,
+        'home_primary_label' => 60,
+        'home_secondary_label' => 60,
+        'home_layout'        => 20,
+        'home_height'        => 20,
+    ];
+    foreach ($homeText as $key => $max) {
+        if (array_key_exists($key, $data)) {
+            $pairs[$key] = mb_substr(trim((string) $data[$key]), 0, $max);
+        }
+    }
+    foreach ($homeFlags as $flag) {
+        if (array_key_exists($flag, $data)) {
+            $value = trim((string) $data[$flag]);
+            $pairs[$flag] = $value === '1' ? '1' : ($value === '0' ? '0' : '');
+        }
+    }
+    // الروابط: نطبّعها ونرفض ما ليس http/https أو مسارًا داخليًا
+    foreach (['home_primary_url', 'home_secondary_url'] as $key) {
+        if (!array_key_exists($key, $data)) {
+            continue;
+        }
+        $url = trim((string) $data[$key]);
+        if ($url === '') {
+            $pairs[$key] = '';
+            continue;
+        }
+        if (preg_match('~^(https?://|mailto:|tel:)~i', $url)
+            || preg_match('~^(/(?!/)|\#)[^\s]*$~', $url)
+            || preg_match('~^[a-z][a-z0-9_-]*(?:/[a-z0-9_-]+)*$~i', $url)) {
+            $pairs[$key] = $url;
+        } elseif (preg_match('~^www\.[^\s]+$~i', $url)) {
+            $pairs[$key] = 'https://' . $url;
+        } else {
+            throw new HttpError('invalid_url', 'رابط الزر يجب أن يبدأ بـ https:// أو يكون مسارًا داخليًا مثل /products.', 422);
+        }
+    }
+
     // الشعار يُرفع كصورة عادية
     if (!empty($data['logo_path'])) {
         $pairs['logo_path'] = (string) $data['logo_path'];
@@ -564,6 +688,16 @@ $router->post('admin.settings.update', function (Request $request) use ($body, $
             ImageUploader::delete(RuntimeSettings::get('logo_path'));
             $pairs['logo_path'] = ImageUploader::store($file, 'brand');
         }
+    }
+
+    /* --- صورة غلاف الصفحة الرئيسية --- */
+    $hero = $request->file('hero');
+    if ($hero !== null) {
+        ImageUploader::delete(RuntimeSettings::get('hero_image_path'));
+        $pairs['hero_image_path'] = ImageUploader::store($hero, 'brand');
+    } elseif (!empty($data['remove_hero'])) {
+        ImageUploader::delete(RuntimeSettings::get('hero_image_path'));
+        $pairs['hero_image_path'] = '';
     }
 
     RuntimeSettings::setMany($pairs);

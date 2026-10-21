@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Config\ProjectConfig;
+use App\Config\TemplatePatterns;
 use App\Core\CompanyProfile;
 use App\Core\Money;
 use App\Core\RuntimeSettings;
@@ -97,6 +98,10 @@ final class CatalogService
             'has_ordering'    => ProjectConfig::hasOrdering(),
             'business_type'   => ProjectConfig::presetId(),
             'business_label'  => ProjectConfig::businessLabel(),
+            'pattern'         => ProjectConfig::pattern(),
+            'pattern_id'      => ProjectConfig::presetId(),
+            'pattern_label'   => ProjectConfig::presetLabel(),
+            'pattern_description' => TemplatePatterns::describe(ProjectConfig::pattern()),
             'product_singular' => ProjectConfig::productSingular(),
             'product_plural'  => ProjectConfig::productPlural(),
             'catalog_title'   => ProjectConfig::catalogTitle(),
@@ -147,6 +152,10 @@ final class CatalogService
         $repository = $this->products;
         $extra      = json_decode((string) $row['extra_json'], true) ?: [];
         $details    = $repository->detailFields($row);
+        $gallery    = array_map(
+            [ProjectConfig::class, 'uploadsUrl'],
+            $repository->galleryPaths($extra)
+        );
 
         /*
          * نفس حقول بطاقة الكتالوج (extra/tags/has_details) حتى لا تفقد النافذة
@@ -158,7 +167,10 @@ final class CatalogService
             'description' => (string) $row['description'],
             'price'       => Money::format((int) $row['price_minor']),
             'price_minor' => (int) $row['price_minor'],
-            'image'       => $row['image_path'] !== '' ? ProjectConfig::uploadsUrl($row['image_path']) : '',
+            'image'       => $row['image_path'] !== ''
+                ? ProjectConfig::uploadsUrl($row['image_path'])
+                : ($gallery[0] ?? ''),
+            'gallery'     => $gallery,
             'category'    => (string) ($row['category_name'] ?? ''),
             'available'   => true,
             'details'     => $details,

@@ -70,6 +70,37 @@ final class CompanyProfile
                 'highlights' => [],
                 'gallery'    => [],
             ],
+            /*
+             * الصفحة الرئيسية (Landing): كل ما هنا يمكن ضبطه من الكود
+             * (company.json) أو تجاوزه من إعدادات لوحة الإدارة. القيم
+             * الفارغة تعني «اتبع الافتراضي» لا «أخفِ».
+             */
+            'home' => [
+                'layout' => 'classic', // classic | split | cover | spotlight
+                'height' => 'large',   // compact | large | full
+                'show_highlights'   => true,
+                'show_sections'     => true,
+                'show_gallery'      => true,
+                'show_stats'        => true,
+                'show_testimonials' => true,
+                'show_faq'          => true,
+                'show_cta'          => true,
+                'show_contact'      => true,
+                'hero' => [
+                    'eyebrow'         => '',
+                    'title'           => '',
+                    'text'            => '',
+                    'primary_label'   => '',
+                    'primary_url'     => '',
+                    'secondary_label' => '',
+                    'secondary_url'   => '',
+                ],
+                'stats'             => [],
+                'testimonials'      => [],
+                'faq'               => [],
+                'testimonials_title' => 'قالوا عنّا',
+                'faq_title'          => 'أسئلة شائعة',
+            ],
             'contact' => [
                 'phone'         => '',
                 'whatsapp'      => '',
@@ -181,10 +212,15 @@ final class CompanyProfile
         $brand = (array) $raw['brand'];
         $about = (array) $raw['about'];
         $contact = (array) $raw['contact'];
+        $home = (array) ($raw['home'] ?? self::schema()['home']);
 
         $brand['name']    = self::text($brand['name'] ?? '') ?: (string) ($fromDb['name'] ?? '');
         $brand['tagline'] = self::text($brand['tagline'] ?? '') ?: (string) ($fromDb['tagline'] ?? '');
+        // الصور تُطبَّع مرة واحدة فقط. قيم لوحة الإدارة وصلت جاهزة من dbFallbacks
+        // فلا نمرّرها على image() ثانية (وإلا صار /app/uploads/app/uploads/...).
         $brand['logo']    = self::image($brand['logo'] ?? '') ?: (string) ($fromDb['logo'] ?? '');
+        $brand['hero_image'] = self::image($brand['hero_image'] ?? '')
+            ?: (string) ($fromDb['hero_image'] ?? '');
 
         /*
          * نبذة الصفحة الرئيسية: ما يكتبه المدير في الإعدادات يتقدّم على نص الملف،
@@ -203,8 +239,8 @@ final class CompanyProfile
             'brand' => [
                 'name'        => $brand['name'],
                 'tagline'     => $brand['tagline'],
-                'logo'        => self::image($brand['logo']),
-                'hero_image'  => self::image($brand['hero_image'] ?? ''),
+                'logo'        => $brand['logo'],
+                'hero_image'  => $brand['hero_image'],
                 'cover_image' => self::image($brand['cover_image'] ?? ''),
             ],
             'about' => [
@@ -213,6 +249,7 @@ final class CompanyProfile
                 'highlights' => self::highlights((array) ($about['highlights'] ?? [])),
                 'gallery'    => self::images((array) ($about['gallery'] ?? [])),
             ],
+            'home' => self::homePayload($home, $fromDb),
             'contact' => self::contactPayload($contact),
             'sections' => self::sections((array) ($raw['sections'] ?? [])),
             'cta' => [
@@ -286,10 +323,29 @@ final class CompanyProfile
             return [
                 'name'      => (string) ($s['app_name'] ?? ''),
                 'tagline'   => (string) ($s['app_tagline'] ?? ''),
-                'logo'      => (string) ($s['logo_path'] ?? ''),
+                // مخزَّن كمسار نسبي داخل app/uploads، وليس رابطًا جاهزًا.
+                'logo'      => self::image(RuntimeSettings::get('logo_path')),
                 'about_summary' => (string) ($s['about_summary'] ?? ''),
                 'phone'     => (string) ($s['contact_phone'] ?? ''),
                 'instagram' => (string) ($s['contact_instagram'] ?? ''),
+                'hero_image' => self::image(RuntimeSettings::get('hero_image_path')),
+                'home_layout' => (string) ($s['home_layout'] ?? ''),
+                'home_height' => (string) ($s['home_height'] ?? ''),
+                'home_hero_eyebrow' => (string) ($s['home_hero_eyebrow'] ?? ''),
+                'home_hero_title' => (string) ($s['home_hero_title'] ?? ''),
+                'home_hero_text' => (string) ($s['home_hero_text'] ?? ''),
+                'home_primary_label' => (string) ($s['home_primary_label'] ?? ''),
+                'home_primary_url' => (string) ($s['home_primary_url'] ?? ''),
+                'home_secondary_label' => (string) ($s['home_secondary_label'] ?? ''),
+                'home_secondary_url' => (string) ($s['home_secondary_url'] ?? ''),
+                'home_show_highlights' => (string) ($s['home_show_highlights'] ?? ''),
+                'home_show_sections' => (string) ($s['home_show_sections'] ?? ''),
+                'home_show_gallery' => (string) ($s['home_show_gallery'] ?? ''),
+                'home_show_stats' => (string) ($s['home_show_stats'] ?? ''),
+                'home_show_testimonials' => (string) ($s['home_show_testimonials'] ?? ''),
+                'home_show_faq' => (string) ($s['home_show_faq'] ?? ''),
+                'home_show_cta' => (string) ($s['home_show_cta'] ?? ''),
+                'home_show_contact' => (string) ($s['home_show_contact'] ?? ''),
             ];
         } catch (\Throwable) {
             return [];
@@ -347,6 +403,28 @@ final class CompanyProfile
                 continue;
             }
 
+            $cards = [];
+            foreach (self::toList($item['items'] ?? []) as $card) {
+                if (!is_array($card)) {
+                    continue;
+                }
+                $cardTitle = self::text($card['title'] ?? '', 100);
+                $cardText  = self::text($card['text'] ?? '', 300);
+                if ($cardTitle === '' && $cardText === '') {
+                    continue;
+                }
+                $cards[] = [
+                    'icon'  => self::icon($card['icon'] ?? ''),
+                    'title' => $cardTitle,
+                    'text'  => $cardText,
+                ];
+            }
+
+            $layout = self::choice($item['layout'] ?? '', ['text', 'media', 'cards']);
+            if ($layout === '') {
+                $layout = $cards !== [] ? 'cards' : 'text';
+            }
+
             $out[] = [
                 'id'       => 'sec-' . ($index + 1),
                 'icon'     => self::icon($item['icon'] ?? ''),
@@ -354,11 +432,144 @@ final class CompanyProfile
                 'body'     => $body,
                 'image'    => $image,
                 'bullets'  => $bullets,
+                'items'    => $cards,
+                'layout'   => $layout,
                 // RTL: صورة نصية تُوضع في العمود الأول
                 'flip'     => (bool) ($item['flip'] ?? false),
             ];
         }
         return $out;
+    }
+
+    /**
+     * الصفحة الرئيسية كحمولة جاهزة: القيم من company.json أولًا،
+     * ثم تتقدّم عليها إعدادات لوحة الإدارة حين كتب فيها المدير شيئًا.
+     * القيمة الفارغة في settings = ورّث من الملف/الافتراضي (لا تعني إخفاء).
+     *
+     * @param array<string, mixed> $home
+     * @param array<string, string> $db
+     * @return array<string, mixed>
+     */
+    private static function homePayload(array $home, array $db): array
+    {
+        $layouts = ['classic', 'split', 'cover', 'spotlight'];
+        $heights = ['compact', 'large', 'full'];
+
+        $layout = self::choice($db['home_layout'] ?? '', $layouts)
+            ?: (self::choice($home['layout'] ?? '', $layouts) ?: 'classic');
+        $height = self::choice($db['home_height'] ?? '', $heights)
+            ?: (self::choice($home['height'] ?? '', $heights) ?: 'large');
+
+        $hero = (array) ($home['hero'] ?? []);
+        $pick = static function (string $dbKey, string $fileKey, int $limit) use ($db, $hero): string {
+            return self::text($db[$dbKey] ?? '', $limit)
+                ?: self::text($hero[$fileKey] ?? '', $limit);
+        };
+
+        $heroOut = [
+            'eyebrow'         => $pick('home_hero_eyebrow', 'eyebrow', 120),
+            'title'           => $pick('home_hero_title', 'title', 120),
+            'text'            => $pick('home_hero_text', 'text', 1200),
+            'primary_label'   => $pick('home_primary_label', 'primary_label', 60),
+            'primary_url'     => self::url($db['home_primary_url'] ?? '')
+                ?: self::url($hero['primary_url'] ?? ''),
+            'secondary_label' => $pick('home_secondary_label', 'secondary_label', 60),
+            'secondary_url'   => self::url($db['home_secondary_url'] ?? '')
+                ?: self::url($hero['secondary_url'] ?? ''),
+        ];
+
+        return [
+            'layout' => $layout,
+            'height' => $height,
+            'hero'   => $heroOut,
+            'show_highlights'   => self::tri($db['home_show_highlights'] ?? '', (bool) ($home['show_highlights'] ?? true)),
+            'show_sections'     => self::tri($db['home_show_sections'] ?? '', (bool) ($home['show_sections'] ?? true)),
+            'show_gallery'      => self::tri($db['home_show_gallery'] ?? '', (bool) ($home['show_gallery'] ?? true)),
+            'show_stats'        => self::tri($db['home_show_stats'] ?? '', (bool) ($home['show_stats'] ?? true)),
+            'show_testimonials' => self::tri($db['home_show_testimonials'] ?? '', (bool) ($home['show_testimonials'] ?? true)),
+            'show_faq'          => self::tri($db['home_show_faq'] ?? '', (bool) ($home['show_faq'] ?? true)),
+            'show_cta'          => self::tri($db['home_show_cta'] ?? '', (bool) ($home['show_cta'] ?? true)),
+            'show_contact'      => self::tri($db['home_show_contact'] ?? '', (bool) ($home['show_contact'] ?? true)),
+            'stats'        => self::stats((array) ($home['stats'] ?? [])),
+            'testimonials' => self::testimonials((array) ($home['testimonials'] ?? [])),
+            'faq'          => self::faq((array) ($home['faq'] ?? [])),
+            'testimonials_title' => self::text($home['testimonials_title'] ?? '', 80) ?: 'قالوا عنّا',
+            'faq_title'          => self::text($home['faq_title'] ?? '', 80) ?: 'أسئلة شائعة',
+        ];
+    }
+
+    /** @return array<int, array{value:string,label:string}> */
+    private static function stats(array $items): array
+    {
+        $out = [];
+        foreach (self::toList($items) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $value = self::text($item['value'] ?? '', 30);
+            $label = self::text($item['label'] ?? '', 80);
+            if ($value === '' && $label === '') {
+                continue;
+            }
+            $out[] = ['value' => $value, 'label' => $label];
+        }
+        return $out;
+    }
+
+    /** @return array<int, array{quote:string,name:string,role:string}> */
+    private static function testimonials(array $items): array
+    {
+        $out = [];
+        foreach (self::toList($items) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $quote = self::text($item['quote'] ?? '', 600);
+            if ($quote === '') {
+                continue;
+            }
+            $out[] = [
+                'quote' => $quote,
+                'name'  => self::text($item['name'] ?? '', 80),
+                'role'  => self::text($item['role'] ?? '', 80),
+            ];
+        }
+        return $out;
+    }
+
+    /** @return array<int, array{q:string,a:string}> */
+    private static function faq(array $items): array
+    {
+        $out = [];
+        foreach (self::toList($items) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $question = self::text($item['q'] ?? '', 200);
+            $answer   = self::text($item['a'] ?? '', 1200);
+            if ($question === '' || $answer === '') {
+                continue;
+            }
+            $out[] = ['q' => $question, 'a' => $answer];
+        }
+        return $out;
+    }
+
+    /** قيمة من مجموعة مغلقة، أو '' إن لم تكن صالحة. */
+    private static function choice(mixed $value, array $allowed): string
+    {
+        $value = is_scalar($value) ? (string) $value : '';
+        return in_array($value, $allowed, true) ? $value : '';
+    }
+
+    /** '' = ورّث القيمة من الملف؛ غير ذلك يغلب. */
+    private static function tri(string $dbValue, bool $fileValue): bool
+    {
+        $dbValue = strtolower(trim($dbValue));
+        if ($dbValue === '') {
+            return $fileValue;
+        }
+        return in_array($dbValue, ['1', 'true', 'on', 'yes', 'نعم'], true);
     }
 
     /** @return array<string, mixed> */
@@ -475,14 +686,27 @@ final class CompanyProfile
         if ($path === '') {
             return '';
         }
-        if (preg_match('#^(https?:)?//|^data:/#i', $path)) {
+        if (preg_match('#^(https?:)?//|^data:#i', $path)) {
             return $path;
         }
-        // حماية من الخروج من مجلد الرفع (../)
+        // حماية من الخروج من مجلد الرفع (../) — قبل قبول أي رابط جاهز
         if (str_contains($path, '..')) {
             return '';
         }
-        return \App\Core\Web\Paths::upload($path);
+        // رابط جاهز من جذر الموقع (كصور لوحة الإدارة أو ملف كُتب يدويًا)
+        if (str_starts_with($path, '/')) {
+            return $path;
+        }
+        // مسار مكرّر بادئته مجلد الرفع: نزيل البادئة بدل إضافتها مرة أخرى
+        $prefix = 'app/uploads/';
+        if (str_starts_with($path, $prefix)) {
+            $path = substr($path, strlen($prefix));
+        }
+        /*
+         * Paths::upload(…, 1) لأن هذه الحمولة تُبنى غالبًا من api/ أو admin/:
+         * يعطي رابطًا مطلقًا (/shop/app/uploads/…) صالحًا من أي صفحة.
+         */
+        return \App\Core\Web\Paths::upload($path, 1);
     }
 
     /** رابط خارجي: يُقبل فقط http/https/mailto/tel — يُسقط أي شيء آخر. */
@@ -493,6 +717,11 @@ final class CompanyProfile
             return '';
         }
         if (preg_match('#^(https?://|mailto:|tel:)#i', $url)) {
+            return $url;
+        }
+        // رابط داخلي: مسار من جذر الموقع أو مرساة أو اسم صفحة (products)
+        if (preg_match('~^(/(?!/)|\#)[^\s]*$~', $url)
+            || preg_match('~^[a-z][a-z0-9_-]*(?:/[a-z0-9_-]+)*$~i', $url)) {
             return $url;
         }
         // وسيلة تواصل تُكتب بلا https — نحوّلها

@@ -47,15 +47,17 @@ $destroyed = false;
 $destroyReport = null;
 
 /**
- * أنواع النشاط الجاهزة — المصدر الوحيد لتسميات المشروع ووضعه.
- * تُقرأ مباشرة من BusinessPresets حتى لا تتكرر القوائم في مكانين.
+ * أنماط القدرات — المصدر الوحيد لما يستطيعه القالب.
+ * المجال (مطعم، متجر…) لم يعد الاختيار الأول؛ النمط هو ما يحدد السلوك.
  *
  * @var array<string, array<string, mixed>>
  */
-$presets = \App\Config\BusinessPresets::all();
+$patterns = \App\Config\TemplatePatterns::all();
 
 /** يبني مسوّدة company.json من إجابات التهيئة (نفس البنية في app/data/company.json). */
-$buildCompanyJson = static function (array $preset, string $name, string $tagline): array {
+$buildCompanyJson = static function (array $overrides, string $name, string $tagline): array {
+    $mode = (string) ($overrides['mode'] ?? \App\Config\TemplatePatterns::MODE_CATALOG);
+
     $doc = [
         'schema_version' => \App\Core\CompanyProfile::SCHEMA_VERSION,
         'brand' => [
@@ -66,10 +68,28 @@ $buildCompanyJson = static function (array $preset, string $name, string $taglin
             'cover_image' => '',
         ],
         'about' => [
-            'summary'    => '',
+            'summary'    => $tagline,
             'story'      => '',
             'highlights' => [],
             'gallery'    => [],
+        ],
+        'home' => [
+            'layout' => 'classic',
+            'height' => 'large',
+            'hero'   => [
+                'eyebrow'          => $tagline,
+                'title'            => '',
+                'text'             => $tagline,
+                'primary_label'    => (string) ($overrides['catalog_cta'] ?? ''),
+                'primary_url'      => '',
+                'secondary_label'  => $mode === \App\Config\TemplatePatterns::MODE_ORDERS
+                    ? (string) ($overrides['order_cta'] ?? '')
+                    : '',
+                'secondary_url'    => '',
+            ],
+            'stats'        => [],
+            'testimonials' => [],
+            'faq'          => [],
         ],
         'contact' => [
             'phone' => '', 'whatsapp' => '', 'email' => '',
@@ -79,7 +99,9 @@ $buildCompanyJson = static function (array $preset, string $name, string $taglin
         ],
         'sections' => [],
         'cta' => [
-            'title'        => 'جاهز للبدء؟',
+            'title'        => $mode === \App\Config\TemplatePatterns::MODE_ORDERS
+                ? 'جاهز للطلب؟'
+                : 'هل لديك سؤال؟',
             'text'         => 'تواصل معنا مباشرة وسنرد عليك في أقرب وقت.',
             'button_label' => 'تواصل معنا',
             'button_url'   => '',
@@ -88,16 +110,14 @@ $buildCompanyJson = static function (array $preset, string $name, string $taglin
         'footer' => ['note' => '', 'links' => []],
     ];
 
-    // نبذة واحدة قابلة للتعديل: تُملأ مرة واحدة في كل المشاريع
-    if (($preset['mode'] ?? '') === \App\Config\BusinessPresets::MODE_CATALOG) {
-        $doc['sections'][] = [
-            'icon'    => 'users',
-            'title'   => 'من نحن؟',
-            'body'    => 'اكتب هنا قصتك: منذ متى تعمل، وما الذي يقدّمه نشاطك بالضبط. '
-                       . 'هذه الفقرة هي أول ما يقرؤه الزائر، فاجعلها واضحة ومختصرة.',
-            'bullets' => [],
-        ];
-    }
+    // قسم «من نحن» انطلاقًا واضحًا لكل نمط، وليس للعرض فقط.
+    $doc['sections'][] = [
+        'icon'    => 'users',
+        'title'   => 'من نحن؟',
+        'body'    => 'اكتب هنا قصتك: منذ متى تعمل، وما الذي يقدّمه نشاطك بالضبط. '
+                   . 'هذه الفقرة هي أول ما يقرؤه الزائر، فاجعلها واضحة ومختصرة.',
+        'bullets' => [],
+    ];
 
     return $doc;
 };
@@ -183,12 +203,21 @@ if (!$rebuildOk) {
         $errors[] = 'مجلد storage غير قابل للكتابة. أعطِه صلاحية 755 أو 775 من لوحة الاستضافة.';
     }
 
-    // نوع النشاط: يحدد الوضع (طلبات أو عرض فقط) وكل التسميات
-    $presetId = trim((string) ($_POST['business_preset'] ?? ''));
-    if (!isset($presets[$presetId])) {
-        $presetId = \App\Config\BusinessPresets::defaultId();
+    /*
+     * النمط: قدرات الموقع لا مجاله. نقبل معرّف نمط جديدًا أو قديمًا
+     * (restaurant/store…) حتى لا تتعطّل النسخ التي ما زالت تستخدمه.
+     */
+    $patternId = trim((string) ($_POST['business_preset'] ?? ''));
+    if (!\App\Config\TemplatePatterns::exists($patternId)
+        && !\App\Config\BusinessPresets::exists($patternId)) {
+        $patternId = \App\Config\TemplatePatterns::defaultId();
     }
-    $preset = $presets[$presetId];
+
+    $answers    = \App\Config\TemplatePatterns::answersFromRequest($_POST);
+    $overrides  = \App\Config\TemplatePatterns::toOverrides(
+        $patternId,
+        $patternId === 'custom' ? $answers : []
+    );
 
     $companyName = trim((string) ($_POST['company_name'] ?? ''));
     if ($companyName === '') {
@@ -220,14 +249,20 @@ if (!$rebuildOk) {
 
             // اختيار المستخدم يبقى قراره هو: نحفظ معرّفه ثم نطبّقه،
             // فلا تُستبدل تسمياتُه بما في الثوابت.
-            \App\Config\ProjectConfig::setOverrides(\App\Config\BusinessPresets::toOverrides($presetId));
+            \App\Config\ProjectConfig::setOverrides($overrides);
 
             $settings = \App\Config\ProjectConfig::defaultRuntimeSettings();
             $settings['app_name']        = $companyName;
             $settings['app_tagline']     = $companyTagline;
             $settings['welcome_message'] = '';
             $settings['show_welcome']    = '0'; // الغلاف بدل صفحة الترحيب القديمة
-            $settings['business_preset'] = $presetId;
+            $settings['business_preset'] = $patternId;
+            $settings['template_blueprint'] = json_encode(
+                $patternId === 'custom'
+                    ? $answers
+                    : (array) ($overrides['template_blueprint'] ?? []),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            ) ?: '';
             \App\Core\RuntimeSettings::setMany($settings);
             \App\Core\RuntimeSettings::flush();
 
@@ -237,7 +272,7 @@ if (!$rebuildOk) {
                 if (!is_dir(dirname($companyJson))) {
                     mkdir(dirname($companyJson), 0775, true);
                 }
-                $doc = $buildCompanyJson($preset, $companyName, $companyTagline);
+                $doc = $buildCompanyJson($overrides, $companyName, $companyTagline);
                 $encoded = json_encode(
                     $doc,
                     JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
@@ -405,6 +440,36 @@ function e(string $value): string
     font-size: .85rem; color: #4b5563; line-height: 1.75;
   }
   .chosen b { color: #16181d; }
+
+  /* بناء نمط مخصص: نفس لغة البطاقات، بلا مكتبات */
+  .preset-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .chip {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    background: #eef1f6; color: #475569; font-size: .68rem; font-weight: 600;
+  }
+  .chip.on { background: #fdf1e8; color: #9a3412; }
+  .builder {
+    margin-top: 14px; padding: 16px; border: 1.5px dashed #d7dbe2;
+    border-radius: 14px; background: #fafbfc;
+  }
+  .builder h3 { margin: 0 0 4px; font-size: .95rem; }
+  .builder .hint { margin: 0 0 12px; }
+  .builder-grid {
+    display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    margin-bottom: 10px;
+  }
+  .builder label { margin: 0; }
+  .builder select {
+    width: 100%; padding: 10px 12px; border: 1px solid #e6e8ec; border-radius: 10px;
+    background: #fff; font: inherit; color: #16181d;
+  }
+  .builder-checks { display: flex; flex-wrap: wrap; gap: 14px; margin: 4px 0 12px; }
+  .builder-checks label {
+    display: flex; align-items: center; gap: 7px; margin: 0;
+    font-weight: 500; color: #374151;
+  }
+  .builder-checks input { width: auto; }
+  .builder .full { display: block; margin-top: 10px; }
 
   /* نموذج إعادة البناء — نفس معنى منطقة الخطر في لوحة الإدارة */
   fieldset.danger { border-top: 1px solid #f3c6c6; margin-top: 26px; padding-top: 22px; }
@@ -606,40 +671,135 @@ function e(string $value): string
       <?php endif; ?>
 
       <fieldset>
-        <legend>ما نوع نشاطك؟</legend>
+        <legend>ما نمط موقعك؟</legend>
         <p class="hint" style="margin-bottom:14px">
-          الاختيار يحدد ما سيظهر في الموقع كله: التسميات، وأنواع الطلبات، وما إذا كانت
-          هناك سلة أم لا. يمكنك تعديله لاحقًا من <code>src/Config/ProjectConfig.php</code>.
+          النمط يصف <strong>ما يستطيعه الموقع</strong> لا مجال نشاطك: طلبات؟ حجوزات؟
+          مواقع أو طاولات؟ صفحة تفاصيل ومعرض صور؟ اختر الأقرب، أو ابنِ نمطك بنفسك.
         </p>
         <div class="preset-grid">
           <?php
-          $icons = [
-              'restaurant' => '🍽️', 'store' => '🛍️', 'showroom' => '🚗',
-              'clinic' => '🩺', 'studio' => '🎨', 'general' => '🏢',
-          ];
-          $postedPreset = (string) ($_POST['business_preset'] ?? \App\Config\BusinessPresets::defaultId());
-          foreach ($presets as $key => $item):
-              $isOrders = ($item['mode'] ?? '') === \App\Config\BusinessPresets::MODE_ORDERS;
+          $postedPattern = (string) ($_POST['business_preset'] ?? \App\Config\TemplatePatterns::defaultId());
+          foreach ($patterns as $key => $item):
+              $bp     = \App\Config\TemplatePatterns::normalizeBlueprint((array) ($item['blueprint'] ?? []));
+              $result = \App\Config\TemplatePatterns::describe($bp);
+              $isOrders = $bp['ordering'] !== \App\Config\TemplatePatterns::ORDER_NONE;
+              $chips = [];
+              $chips[] = match ($bp['ordering']) {
+                  \App\Config\TemplatePatterns::ORDER_CART => $bp['multi_items'] ? 'طلبات متعددة' : 'طلب واحد',
+                  \App\Config\TemplatePatterns::ORDER_SINGLE => 'طلب واحد',
+                  \App\Config\TemplatePatterns::ORDER_RESERVATION => 'حجوزات',
+                  default => 'عرض فقط',
+              };
+              if ($bp['places'] === \App\Config\TemplatePatterns::PLACE_REQUIRED) {
+                  $chips[] = 'طاولات / QR';
+              } elseif ($bp['places'] === \App\Config\TemplatePatterns::PLACE_OPTIONAL) {
+                  $chips[] = 'مواقع اختيارية';
+              }
+              if ($bp['details'] === \App\Config\TemplatePatterns::DETAIL_GALLERY) {
+                  $chips[] = 'تفاصيل + معرض';
+              } elseif ($bp['details'] === \App\Config\TemplatePatterns::DETAIL_PAGE) {
+                  $chips[] = 'صفحة تفاصيل';
+              }
           ?>
             <label class="preset">
               <input type="radio" name="business_preset" value="<?= e($key) ?>"
-                     data-sum="<?= e($item['summary'] ?? '') ?>"
-                     data-orders="<?= $isOrders ? '1' : '0' ?>"
-                     <?= $postedPreset === $key ? 'checked' : '' ?>>
+                     data-result="<?= e($result) ?>"
+                     <?= $postedPattern === $key ? 'checked' : '' ?>>
               <span class="preset-card">
                 <span class="preset-top">
-                  <span class="preset-emoji" aria-hidden="true"><?= $icons[$key] ?? '🏢' ?></span>
+                  <span class="preset-emoji" aria-hidden="true"><?= e((string) ($item['icon'] ?? '🧩')) ?></span>
                   <span class="preset-name"><?= e($item['label'] ?? $key) ?></span>
                 </span>
                 <span class="preset-sum"><?= e($item['summary'] ?? '') ?></span>
-                <span class="preset-badge <?= $isOrders ? 'orders' : 'catalog' ?>">
-                  <?= $isOrders ? 'مع نظام الطلبات' : 'عرض فقط — بلا طلبات' ?>
+                <span class="preset-chips">
+                  <?php foreach ($chips as $chip): ?>
+                    <span class="chip<?= $isOrders ? ' on' : '' ?>"><?= e($chip) ?></span>
+                  <?php endforeach; ?>
                 </span>
               </span>
             </label>
           <?php endforeach; ?>
         </div>
         <div class="chosen" id="preset-detail"></div>
+
+        <?php
+        /*
+         * إعادة عرض إجابات البنّاء بعد خطأ في التحقق، بدل إرجاعها إلى
+         * الافتراضي وإجبار المستخدم على إعادة اختيارها كلها.
+         */
+        $builderValue = static function (string $key, string $default): string {
+            return array_key_exists($key, $_POST) ? (string) $_POST[$key] : $default;
+        };
+        $builderChecked = static fn(string $key): bool => !empty($_POST[$key]);
+        $orderingChoice = $builderValue('pattern_ordering', \App\Config\TemplatePatterns::ORDER_NONE);
+        $placesChoice   = $builderValue('pattern_places', \App\Config\TemplatePatterns::PLACE_NONE);
+        $detailsChoice  = $builderValue('pattern_details', \App\Config\TemplatePatterns::DETAIL_PAGE);
+        $mediaChoice    = $builderValue('pattern_media', \App\Config\TemplatePatterns::MEDIA_SINGLE);
+        ?>
+        <div class="builder" id="pattern-builder" <?= $postedPattern === 'custom' ? '' : 'hidden' ?>>
+          <h3>ابنِ نمطك الخاص</h3>
+          <p class="hint">هذه الخيارات تُفعّل عند اختيار بطاقة «نمط مخصص» أعلاه.</p>
+
+          <div class="builder-grid">
+            <label for="pattern-ordering">الطلبات
+              <select id="pattern-ordering" name="pattern_ordering">
+                <option value="none" <?= $orderingChoice === 'none' ? 'selected' : '' ?>>بلا طلبات — عرض فقط</option>
+                <option value="cart" <?= $orderingChoice === 'cart' ? 'selected' : '' ?>>سلة وطلبات</option>
+                <option value="single" <?= $orderingChoice === 'single' ? 'selected' : '' ?>>طلب عنصر واحد</option>
+                <option value="reservation" <?= $orderingChoice === 'reservation' ? 'selected' : '' ?>>حجوزات ومواعيد</option>
+              </select>
+            </label>
+            <label for="pattern-places">المواقع / الطاولات
+              <select id="pattern-places" name="pattern_places">
+                <option value="none" <?= $placesChoice === 'none' ? 'selected' : '' ?>>بلا مواقع</option>
+                <option value="optional" <?= $placesChoice === 'optional' ? 'selected' : '' ?>>مواقع اختيارية</option>
+                <option value="required" <?= $placesChoice === 'required' ? 'selected' : '' ?>>إلزامية برموز QR</option>
+              </select>
+            </label>
+            <label for="pattern-details">تفاصيل العنصر
+              <select id="pattern-details" name="pattern_details">
+                <option value="none" <?= $detailsChoice === 'none' ? 'selected' : '' ?>>بطاقة مختصرة فقط</option>
+                <option value="page" <?= $detailsChoice === 'page' ? 'selected' : '' ?>>صفحة تفاصيل</option>
+                <option value="gallery" <?= $detailsChoice === 'gallery' ? 'selected' : '' ?>>تفاصيل + معرض صور</option>
+              </select>
+            </label>
+            <label for="pattern-media">صور العنصر
+              <select id="pattern-media" name="pattern_media">
+                <option value="single" <?= $mediaChoice === 'single' ? 'selected' : '' ?>>صورة واحدة</option>
+                <option value="gallery" <?= $mediaChoice === 'gallery' ? 'selected' : '' ?>>معرض صور</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="builder-checks">
+            <label><input type="checkbox" name="pattern_multi" value="1" <?= $builderChecked('pattern_multi') ? 'checked' : '' ?>> السماح بعدة عناصر في الطلب</label>
+            <label><input type="checkbox" name="pattern_tracking" value="1" <?= $builderChecked('pattern_tracking') ? 'checked' : '' ?>> متابعة الطلب برمز</label>
+          </div>
+
+          <div class="builder-grid">
+            <label for="pattern-singular">تسمية العنصر
+              <input type="text" id="pattern-singular" name="pattern_singular" maxlength="40"
+                     value="<?= e($_POST['pattern_singular'] ?? '') ?>" placeholder="عنصر / خدمة / منتج">
+            </label>
+            <label for="pattern-plural">الجمع
+              <input type="text" id="pattern-plural" name="pattern_plural" maxlength="60"
+                     value="<?= e($_POST['pattern_plural'] ?? '') ?>" placeholder="العناصر / الخدمات">
+            </label>
+            <label for="pattern-catalog-title">عنوان صفحة العرض
+              <input type="text" id="pattern-catalog-title" name="pattern_catalog_title" maxlength="60"
+                     value="<?= e($_POST['pattern_catalog_title'] ?? '') ?>" placeholder="المعروضات">
+            </label>
+            <label for="pattern-order-cta">زر الطلب / الحجز
+              <input type="text" id="pattern-order-cta" name="pattern_order_cta" maxlength="60"
+                     value="<?= e($_POST['pattern_order_cta'] ?? '') ?>" placeholder="اطلب الآن">
+            </label>
+          </div>
+
+          <label class="full" for="pattern-hero-title">عنوان الغلاف الرئيسي
+            <input type="text" id="pattern-hero-title" name="pattern_hero_title" maxlength="120"
+                   value="<?= e($_POST['pattern_hero_title'] ?? '') ?>" placeholder="مرحبًا بكم">
+          </label>
+        </div>
       </fieldset>
 
       <label for="company_name">اسم النشاط *</label>
@@ -676,17 +836,16 @@ function e(string $value): string
     <script nonce="setup-local">
     (function () {
       var box = document.getElementById('preset-detail');
+      var builder = document.getElementById('pattern-builder');
       var inputs = document.querySelectorAll('input[name="business_preset"]');
       if (!box || !inputs.length) return;
 
       function paint() {
         var picked = document.querySelector('input[name="business_preset"]:checked');
         if (!picked) { box.textContent = ''; return; }
-        var orders = picked.dataset.orders === '1';
-        var result = orders
-          ? 'ستحصل على سلة وصفحة إتمام الطلب ومتابعة الطلب، وأنواع طلبات قابلة للتعديل (مثل: في المحل، سفري، توصيل).'
-          : 'ستحصل على معرض منتجات للتصفح فقط بلا سلة ولا طلبات. قناة الاستفسار الوحيدة هي صفحة "تواصل معنا".';
-        box.textContent = 'النتيجة: ' + result;
+        var custom = picked.value === 'custom';
+        if (builder) builder.hidden = !custom;
+        box.innerHTML = '<b>النتيجة:</b> ' + (picked.dataset.result || '');
       }
 
       inputs.forEach(function (input) { input.addEventListener('change', paint); });

@@ -115,6 +115,44 @@ final class Request
         return $f;
     }
 
+    /**
+     * ملفات متعددة من حقل واحد بصيغة name[] — تعيد قائمة مسطّحة.
+     * PHP يبني $_FILES كأعمدة متوازية (name[] / tmp_name[] / …)، فنعيد
+     * تجميعها هنا حتى لا تتكرر المعالجة في كل مسار رفع.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function files(string $key): array
+    {
+        $raw = $this->files[$key] ?? null;
+        if (!is_array($raw)) {
+            return [];
+        }
+        // ملف مفرد أُرسل بالخطأ كـ name="" (لا مصفوفة أعمدة)
+        if (isset($raw['tmp_name']) && !is_array($raw['tmp_name'])) {
+            $single = $this->file($key);
+            return $single === null ? [] : [$single];
+        }
+        if (!isset($raw['tmp_name']) || !is_array($raw['tmp_name'])) {
+            return [];
+        }
+
+        $out = [];
+        foreach (array_keys($raw['tmp_name']) as $index) {
+            $file = [
+                'name'     => $raw['name'][$index] ?? '',
+                'type'     => $raw['type'][$index] ?? '',
+                'tmp_name' => $raw['tmp_name'][$index] ?? '',
+                'error'    => $raw['error'][$index] ?? UPLOAD_ERR_NO_FILE,
+                'size'     => $raw['size'][$index] ?? 0,
+            ];
+            if ((int) $file['error'] !== UPLOAD_ERR_NO_FILE) {
+                $out[] = $file;
+            }
+        }
+        return $out;
+    }
+
     public function isSecure(): bool
     {
         $https = $this->server['HTTPS'] ?? '';

@@ -90,6 +90,26 @@ final class RuntimeSettings
             'show_search'     => self::bool('show_search'),
             'show_contact'    => self::bool('show_contact'),
             'show_prices'     => self::bool('show_prices'),
+
+            /* --- تخصيص الصفحة الرئيسية (فارغ = ورّث من company.json) --- */
+            'hero_image'          => self::assetUrl(self::get('hero_image_path')),
+            'home_layout'         => self::get('home_layout'),
+            'home_height'         => self::get('home_height'),
+            'home_hero_eyebrow'   => self::get('home_hero_eyebrow'),
+            'home_hero_title'     => self::get('home_hero_title'),
+            'home_hero_text'      => self::get('home_hero_text'),
+            'home_primary_label'  => self::get('home_primary_label'),
+            'home_primary_url'    => self::get('home_primary_url'),
+            'home_secondary_label' => self::get('home_secondary_label'),
+            'home_secondary_url'  => self::get('home_secondary_url'),
+            'home_show_highlights' => self::get('home_show_highlights'),
+            'home_show_sections'   => self::get('home_show_sections'),
+            'home_show_gallery'    => self::get('home_show_gallery'),
+            'home_show_stats'      => self::get('home_show_stats'),
+            'home_show_testimonials' => self::get('home_show_testimonials'),
+            'home_show_faq'        => self::get('home_show_faq'),
+            'home_show_cta'        => self::get('home_show_cta'),
+            'home_show_contact'    => self::get('home_show_contact'),
         ];
     }
 
@@ -100,6 +120,8 @@ final class RuntimeSettings
         // logo_path يبقى كما هو (المسار المخزَّن) لأن لوحة الإدارة تحتاجه للحذف،
         // وlogo_url هو الرابط الجاهز للمعاينة.
         $payload['logo_url'] = self::assetUrl((string) ($payload['logo_path'] ?? ''));
+        // نفس المنطق لصورة الغلاف: المسار للحذف/الاستبدال، والرابط للمعاينة.
+        $payload['hero_image_url'] = self::assetUrl((string) ($payload['hero_image_path'] ?? ''));
         return $payload;
     }
 

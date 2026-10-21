@@ -37,7 +37,13 @@
     contact: 'تواصل معنا',
     cart: 'السلة',
     checkout: 'إتمام الطلب',
-    success: 'تم استلام طلبك',
+    success: function() {
+      var store = global.App.Store;
+      if (store && store.orderingMode && store.orderingMode() === 'reservation') {
+        return 'تم استلام الحجز';
+      }
+      return 'تم استلام طلبك';
+    },
     track: 'متابعة الطلب'
   };
 
@@ -283,6 +289,7 @@
       var shown = findProduct(state.productId);
       if (shown) title = shown.name;
     }
+    if (typeof title === 'function') title = title();
     if (title === null || title === undefined) {
       document.title = app;
     } else {

@@ -48,6 +48,95 @@
     return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' + body + '</svg>';
   }
 
+  /**
+   * وسائط المنتج: الصورة الأساسية + شرائط مصغّرة للمعرض.
+   * الضغط على مصغّرة يبدّل الصورة الكبيرة بلا إعادة رسم الصفحة.
+   */
+  function productMedia(product) {
+    if (!product) return '';
+    var gallery = (product.gallery || []).filter(function (src) { return !!src; });
+    if (gallery.length === 0 && product.image) gallery = [product.image];
+    var main = product.image || gallery[0] || '';
+    if (!main) return '';
+
+    var thumbs = gallery.length > 1
+      ? '<div class="product-gallery-thumbs">' + gallery.map(function (src, index) {
+          return '<button type="button" class="product-gallery-thumb' + (src === main ? ' is-active' : '') +
+            '" data-gallery-src="' + UI.escape(src) + '" data-gallery-index="' + index + '" aria-label="الصورة ' + (index + 1) + '">' +
+            '<img src="' + UI.escape(src) + '" alt="" loading="lazy" decoding="async"></button>';
+        }).join('') + '</div>'
+      : '';
+
+    var arrows = gallery.length > 1
+      ? '<button type="button" class="gallery-nav gallery-nav-prev" data-gallery-prev aria-label="الصورة السابقة">‹</button>' +
+        '<button type="button" class="gallery-nav gallery-nav-next" data-gallery-next aria-label="الصورة التالية">›</button>'
+      : '';
+
+    return '<div class="sheet-media product-media' + (thumbs ? ' has-gallery' : '') + '" data-gallery-list="' + UI.escape(gallery.join('|')) + '">' +
+      arrows +
+      '<img class="product-gallery-main" src="' + UI.escape(main) + '" alt="' +
+      UI.escape(product.name || '') + '">' + thumbs +
+    '</div>';
+  }
+
+  /** يربط مصغّرات المعرض والصورة الكبيرة داخل عنصر أُعيد رسمه. */
+  function bindProductGallery(root) {
+    if (!root) return;
+    var main = root.querySelector('.product-gallery-main');
+    if (!main) return;
+    var media = root.querySelector('.product-media');
+    var listAttr = media ? media.getAttribute('data-gallery-list') : '';
+    var gallery = listAttr ? listAttr.split('|').filter(Boolean) : [];
+    if (gallery.length === 0 && main.src) gallery = [main.src];
+
+    function setActive(index) {
+      if (gallery.length === 0) return;
+      var idx = ((index % gallery.length) + gallery.length) % gallery.length;
+      main.src = gallery[idx];
+      root.querySelectorAll('[data-gallery-src]').forEach(function (other) {
+        var otherIdx = parseInt(other.getAttribute('data-gallery-index') || '-1', 10);
+        other.classList.toggle('is-active', otherIdx === idx);
+      });
+    }
+
+    root.querySelectorAll('[data-gallery-src]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var src = button.getAttribute('data-gallery-src') || '';
+        var idx = parseInt(button.getAttribute('data-gallery-index') || '-1', 10);
+        if (src) {
+          main.src = src;
+        }
+        root.querySelectorAll('[data-gallery-src]').forEach(function (other) {
+          other.classList.toggle('is-active', other === button);
+        });
+        if (idx >= 0) {
+          // sync
+        }
+      });
+    });
+
+    var prev = root.querySelector('[data-gallery-prev]');
+    var next = root.querySelector('[data-gallery-next]');
+    if (prev) {
+      prev.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var currentSrc = main.src;
+        var currentIdx = gallery.indexOf(currentSrc);
+        if (currentIdx === -1) currentIdx = 0;
+        setActive(currentIdx - 1);
+      });
+    }
+    if (next) {
+      next.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var currentSrc = main.src;
+        var currentIdx = gallery.indexOf(currentSrc);
+        if (currentIdx === -1) currentIdx = 0;
+        setActive(currentIdx + 1);
+      });
+    }
+  }
+
   /** وسائل التواصل: [{key,label,icon,value,href,external}] */
   function contactWays(contact) {
     var ways = [];
@@ -275,6 +364,26 @@ renderBrand: function (settings, config) {
       var brand = company.brand || {};
       var about = company.about || {};
       var cta = company.cta || {};
+      var home = company.home || {};
+      var heroContent = home.hero || {};
+      var settings = store.settings || {};
+      var config = store.config || {};
+
+      // كل مفتاح show_* يأتي bool من company/homePayload؛ الغياب = إظهار.
+      var visible = function (key) { return home[key] !== false; };
+
+      /* --- تخطيط الغلاف وارتفاعه --- */
+      var heroBox = $('hero');
+      if (heroBox) {
+        ['classic', 'split', 'cover', 'spotlight'].forEach(function (name) {
+          heroBox.classList.remove('hero--' + name);
+        });
+        ['compact', 'large', 'full'].forEach(function (name) {
+          heroBox.classList.remove('hero--' + name);
+        });
+        heroBox.classList.add('hero--' + (home.layout || 'classic'));
+        heroBox.classList.add('hero--' + (home.height || 'large'));
+      }
 
       /* --- الغلاف: شعار + صورة + اسم + وصف + زر --- */
       var heroImage = brand.hero_image || brand.cover_image;
@@ -285,71 +394,125 @@ renderBrand: function (settings, config) {
       } else {
         UI.setHidden($('hero-media'), true);
       }
+      // التخطيطات المنقسمة/الكاملة تحتاج حالة خاصة حين لا توجد صورة،
+      // وإلا بقي عمود فارغ أو مساحة ميتة أعلى النص.
+      if (heroBox) heroBox.classList.toggle('hero--no-media', !heroImage);
 
       /*
        * الشعار في منتصف الصفحة الرئيسية: كبير/متوسط وتحته اسم المشروع.
        * مصدره company.json ثم إعدادات لوحة الإدارة (نفس ترتيب الرأس).
        */
       var heroLogo = $('hero-logo');
-      var logoSrc = brand.logo || store.settings.logo_path || '';
+      var logoSrc = brand.logo || settings.logo_path || '';
       if (heroLogo) {
         if (logoSrc) {
           var logoImg = $('hero-logo-img');
           if (logoImg.getAttribute('src') !== logoSrc) logoImg.src = logoSrc;
-          logoImg.alt = brand.name || store.settings.app_name || '';
+          logoImg.alt = brand.name || settings.app_name || '';
           UI.setHidden(heroLogo, false);
         } else {
           UI.setHidden(heroLogo, true);
         }
       }
 
-      $('hero-title').textContent = brand.name || store.settings.app_name || '';
+      // عنوان الغلاف: company.json ← إعدادات الإدارة/النمط ← اسم النشاط.
+      $('hero-title').textContent = heroContent.title || config.home_hero_title ||
+        brand.name || settings.app_name || '';
 
       var eyebrow = $('hero-eyebrow');
-      if (brand.tagline) {
-        eyebrow.textContent = brand.tagline;
+      var eyebrowText = heroContent.eyebrow || brand.tagline || '';
+      if (eyebrowText) {
+        eyebrow.textContent = eyebrowText;
         UI.setHidden(eyebrow, false);
       } else {
         UI.setHidden(eyebrow, true);
       }
 
       var heroText = $('hero-text');
-      if (about.summary) {
-        heroText.textContent = about.summary;
+      var heroBody = heroContent.text || about.summary || '';
+      if (heroBody) {
+        heroText.textContent = heroBody;
         UI.setHidden(heroText, false);
       } else {
         UI.setHidden(heroText, true);
       }
 
-      // الزر الأول دومًا إلى المنتجات، والثاني إلى التواصل في وضع العرض فقط
-      var mainCta = $('hero-cta');
-      mainCta.textContent = store.catalogCta();
-      mainCta.setAttribute('data-go', 'products');
+      /*
+       * أزرار الغلاف: يمكن تخصيص النص والرابط من company.json أو الإدارة.
+       * الرابط الفارغ يعود للسلوك الافتراضي (المنتجات / التواصل).
+       */
+      var setHeroCta = function (element, label, url, fallbackLabel, fallbackGo) {
+        if (!element) return;
+        element.textContent = label || fallbackLabel || '';
+        element.removeAttribute('target');
+        element.removeAttribute('rel');
+        element.removeAttribute('data-go');
 
-      var second = $('hero-cta-2');
-      if (store.hasOrdering()) {
-        second.textContent = store.orderCta();
-        second.setAttribute('data-go', 'products');
-        UI.setHidden(second, false);
-      } else {
-        second.setAttribute('data-go', 'contact');
-        second.textContent = 'تواصل معنا';
-        UI.setHidden(second, false);
-      }
+        var target = (url || '').trim();
+        if (target === '') {
+          element.setAttribute('href', '#');
+          element.setAttribute('data-go', fallbackGo);
+        } else if (/^(https?:|mailto:|tel:)/i.test(target)) {
+          element.setAttribute('href', target);
+          element.setAttribute('target', '_blank');
+          element.setAttribute('rel', 'noopener noreferrer');
+        } else if (target.charAt(0) === '#' || target.charAt(0) === '/') {
+          element.setAttribute('href', target);
+        } else {
+          element.setAttribute('href',
+            global.App.Router && global.App.Router.href ? global.App.Router.href(target) : '#');
+          element.setAttribute('data-go', target);
+        }
+        UI.setHidden(element, false);
+      };
+
+      setHeroCta(
+        $('hero-cta'),
+        heroContent.primary_label,
+        heroContent.primary_url,
+        store.catalogCta(),
+        'products'
+      );
+
+      var secondaryLabel = heroContent.secondary_label ||
+        (store.hasOrdering() ? store.orderCta() : 'تواصل معنا');
+      setHeroCta(
+        $('hero-cta-2'),
+        heroContent.secondary_label,
+        heroContent.secondary_url,
+        secondaryLabel,
+        store.hasOrdering() ? 'products' : 'contact'
+      );
 
       /* --- رسالة الترحيب (نفس الحقل القديم، بمكان أفضل) --- */
       var welcome = $('welcome-notice');
-      if (store.settings.show_welcome && store.settings.welcome_message) {
-        welcome.textContent = store.settings.welcome_message;
+      if (settings.show_welcome && settings.welcome_message) {
+        welcome.textContent = settings.welcome_message;
         UI.setHidden(welcome, false);
       } else {
         UI.setHidden(welcome, true);
       }
 
+      /* --- الأرقام: حقائق سريعة داخل الغلاف --- */
+      var stats = home.stats || [];
+      var statsBox = $('home-stats');
+      if (visible('show_stats') && stats.length) {
+        statsBox.innerHTML = stats.map(function (item) {
+          return '<div class="hero-stat">' +
+            (item.value ? '<dt class="hero-stat-value">' + UI.escape(item.value) + '</dt>' : '') +
+            (item.label ? '<dd class="hero-stat-label">' + UI.escape(item.label) + '</dd>' : '') +
+          '</div>';
+        }).join('');
+        UI.setHidden(statsBox, false);
+      } else {
+        statsBox.innerHTML = '';
+        UI.setHidden(statsBox, true);
+      }
+
       /* --- نقاط التميّز --- */
       var highlights = about.highlights || [];
       var hlBox = $('highlights');
-      if (highlights.length) {
+      if (visible('show_highlights') && highlights.length) {
         hlBox.innerHTML = highlights.map(function (item) {
           return '<div class="highlight">' +
             '<span class="highlight-ico">' + icon(item.icon, 'ico-fill') + '</span>' +
@@ -363,7 +526,7 @@ renderBrand: function (settings, config) {
       }
 
       /* --- الأقسام: كتل مرنة بصور ونقاط --- */
-      var sections = company.sections || [];
+      var sections = visible('show_sections') ? (company.sections || []) : [];
       $('home-sections').innerHTML = sections.map(function (section) {
         var bullets = (section.bullets || []).length
           ? '<ul class="bullets">' + section.bullets.map(function (line) {
@@ -376,21 +539,34 @@ renderBrand: function (settings, config) {
             '" alt="" loading="lazy" decoding="async"></div>'
           : '';
 
+        var cards = (section.items || []).length
+          ? '<div class="section-cards">' + section.items.map(function (card) {
+              return '<div class="section-card">' +
+                (card.icon ? '<span class="section-card-ico">' + icon(card.icon, 'ico-fill') + '</span>' : '') +
+                (card.title ? '<h3 class="section-card-title">' + UI.escape(card.title) + '</h3>' : '') +
+                (card.text ? '<p class="section-card-text">' + UI.escape(card.text) + '</p>' : '') +
+              '</div>';
+            }).join('') + '</div>'
+          : '';
+
         return '<section class="section' + (section.flip ? ' flip' : '') +
+          (section.layout ? ' section--' + section.layout : '') +
+          (cards && section.layout !== 'cards' ? ' section--cards' : '') +
+          (media ? '' : ' section--no-media') +
           '" id="' + UI.escape(section.id) + '">' +
           '<div class="section-body">' +
             (section.icon ? '<span class="section-ico">' + icon(section.icon, 'ico-fill') + '</span>' : '') +
             (section.title ? '<h2 class="section-heading">' + UI.escape(section.title) + '</h2>' : '') +
             (section.body ? '<p class="section-text">' + UI.escape(section.body) + '</p>' : '') +
             bullets +
-          '</div>' + media +
+          '</div>' + media + cards +
         '</section>';
       }).join('');
 
       /* --- معرض الصور --- */
       var gallery = about.gallery || [];
       var galBox = $('gallery');
-      if (gallery.length) {
+      if (visible('show_gallery') && gallery.length) {
         galBox.innerHTML = gallery.map(function (src, index) {
           return '<figure class="gallery-item"><img src="' + UI.escape(src) + '" alt="' +
             UI.escape(brand.name || '') + ' ' + (index + 1) +
@@ -401,27 +577,52 @@ renderBrand: function (settings, config) {
         UI.setHidden(galBox, true);
       }
 
+      /* --- آراء الزبائن --- */
+      var testimonials = home.testimonials || [];
+      var testimonialsBox = $('testimonials');
+      if (visible('show_testimonials') && testimonials.length) {
+        $('testimonials-title').textContent = home.testimonials_title || 'قالوا عنّا';
+        $('testimonial-grid').innerHTML = testimonials.map(function (item) {
+          return '<blockquote class="testimonial">' +
+            '<p class="testimonial-quote">' + UI.escape(item.quote) + '</p>' +
+            '<footer class="testimonial-by">' +
+              (item.name ? '<span class="testimonial-name">' + UI.escape(item.name) + '</span>' : '') +
+              (item.role ? '<span class="testimonial-role">' + UI.escape(item.role) + '</span>' : '') +
+            '</footer>' +
+          '</blockquote>';
+        }).join('');
+        UI.setHidden(testimonialsBox, false);
+      } else {
+        UI.setHidden(testimonialsBox, true);
+      }
+
+      /* --- الأسئلة الشائعة --- */
+      var faq = home.faq || [];
+      var faqBox = $('faq');
+      if (visible('show_faq') && faq.length) {
+        $('faq-title').textContent = home.faq_title || 'أسئلة شائعة';
+        $('faq-list').innerHTML = faq.map(function (item) {
+          return '<details class="faq-item">' +
+            '<summary class="faq-q">' + UI.escape(item.q) + '</summary>' +
+            '<p class="faq-a">' + UI.escape(item.a) + '</p>' +
+          '</details>';
+        }).join('');
+        UI.setHidden(faqBox, false);
+      } else {
+        UI.setHidden(faqBox, true);
+      }
+
       /* --- شريط الدعوة للإجراء --- */
       var band = $('cta-band');
       var ctaButton = $('cta-button');
-      if (cta.title || cta.text || cta.button_label) {
+      if (visible('show_cta') && (cta.title || cta.text || cta.button_label)) {
         $('cta-title').textContent = cta.title || '';
         UI.setHidden($('cta-title'), !cta.title);
 
         $('cta-text').textContent = cta.text || '';
         UI.setHidden($('cta-text'), !cta.text);
 
-        ctaButton.textContent = cta.button_label || 'تواصل معنا';
-        if (cta.button_url) {
-          ctaButton.setAttribute('href', cta.button_url);
-          ctaButton.setAttribute('target', '_blank');
-          ctaButton.setAttribute('rel', 'noopener noreferrer');
-          ctaButton.removeAttribute('data-go');
-        } else {
-          ctaButton.removeAttribute('target');
-          ctaButton.removeAttribute('rel');
-          ctaButton.setAttribute('data-go', 'contact');
-        }
+        setHeroCta(ctaButton, cta.button_label, cta.button_url, 'تواصل معنا', 'contact');
         UI.setHidden(band, false);
       } else {
         UI.setHidden(band, true);
@@ -430,7 +631,7 @@ renderBrand: function (settings, config) {
       /* --- نظرة سريعة على التواصل --- */
       var ways = contactWays(company.contact);
       var glance = $('contact-glance');
-      if (ways.length) {
+      if (visible('show_contact') && ways.length) {
         $('glance-grid').innerHTML = ways.slice(0, 4).map(function (way) {
           return '<a class="glance-item" href="' + UI.escape(way.href || '#') + '"' +
             (way.external ? ' target="_blank" rel="noopener noreferrer"' : '') + '>' +
@@ -821,9 +1022,7 @@ renderProducts: function (products, filters) {
       var qty = $('sheet-qty');
       if (!body || !product) return;
 
-      var media = product.image
-        ? '<div class="sheet-media"><img src="' + UI.escape(product.image) + '" alt="' + UI.escape(product.name) + '"></div>'
-        : '';
+      var media = productMedia(product);
 
       var tags = (product.extra || {});
       var tagHtml = '';
@@ -860,6 +1059,7 @@ renderProducts: function (products, filters) {
         (details ? '<dl class="detail-list">' + details + '</dl>' : '') +
         fullPage;
 
+      bindProductGallery(body);
       UI.setHidden(footer, !global.App.Store.hasOrdering() || product.available === false);
       if (qty) qty.textContent = '1';
     },
@@ -880,9 +1080,7 @@ renderProducts: function (products, filters) {
 
       var store = global.App.Store;
 
-      var media = product.image
-        ? '<div class="sheet-media"><img src="' + UI.escape(product.image) + '" alt="' + UI.escape(product.name) + '"></div>'
-        : '';
+      var media = productMedia(product);
 
       var tags = (product.extra || {});
       var tagHtml = '';
@@ -924,12 +1122,17 @@ renderProducts: function (products, filters) {
           (details ? '<dl class="detail-list">' + details + '</dl>' : '') +
         '</div>' +
         actions;
+
+      bindProductGallery(page);
     },
 
     renderSuccess: function (order) {
       var rows = [];
       if (order.location) rows.push(cartRow('الموقع', order.location));
-      rows.push(cartRow('عدد الأصناف', String(order.items_count || (order.items || []).length)));
+      var store = global.App.Store;
+      var isReservation = store && store.orderingMode && store.orderingMode() === 'reservation';
+      var itemLabel = isReservation ? 'عدد العناصر' : 'عدد الأصناف';
+      rows.push(cartRow(itemLabel, String(order.items_count || (order.items || []).length)));
 
       (order.items || []).forEach(function (item) {
         rows.push(cartRow(item.quantity + ' × ' + item.name, item.line_total));
@@ -942,6 +1145,18 @@ renderProducts: function (products, filters) {
       if (track && order.tracking_url) {
         track.href = order.tracking_url;
         UI.setHidden(track, false);
+      }
+      
+      // Update success title based on order type
+      var successTitle = $('success-title');
+      if (successTitle) {
+        if (isReservation) {
+          successTitle.textContent = 'تم استلام حجزك';
+        } else if (store.orderingMode && store.orderingMode() === 'single') {
+          successTitle.textContent = 'تم استلام طلبك';
+        } else {
+          successTitle.textContent = 'تم استلام طلبك';
+        }
       }
     },
 

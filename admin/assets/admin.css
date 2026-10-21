@@ -406,6 +406,36 @@ td.actions .btn { margin-inline-start: 6px; }
 .me-lg { margin-inline-end: 18px; }
 .section-title { margin: 18px 0 8px; font-size: .95rem; }
 .section-title.bordered { margin: 18px 0 4px; border-top: 1px solid var(--line); padding-top: 14px; }
+.check-inline { display: inline-flex; align-items: center; gap: 7px; margin-top: 8px; font-size: .84rem; }
+
+/* معرض صور المنتج في نموذج التعديل */
+.gallery-current {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.gallery-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 92px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: .76rem;
+  cursor: pointer;
+}
+.gallery-pick img {
+  width: 76px;
+  height: 76px;
+  object-fit: cover;
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+}
+.gallery-pick input { accent-color: var(--accent); }
 .row-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
 .st-off { background: var(--ink-3); }
 

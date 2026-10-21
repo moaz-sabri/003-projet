@@ -343,10 +343,13 @@ final class Migrations
     public static function reset(): void
     {
         $preset = '';
+        $blueprint = '';
         try {
-            $preset = (string) \App\Core\RuntimeSettings::get('business_preset', '');
+            $preset    = (string) \App\Core\RuntimeSettings::get('business_preset', '');
+            $blueprint = (string) \App\Core\RuntimeSettings::get('template_blueprint', '');
         } catch (\Throwable) {
             $preset = '';
+            $blueprint = '';
         }
 
         $tables = ['order_events', 'order_items', 'orders', 'products', 'categories', 'locations', 'settings', 'daily_counters', 'login_attempts'];
@@ -357,8 +360,11 @@ final class Migrations
         Database::pdo()->exec('PRAGMA foreign_keys = ON');
         self::migrate();
 
-        if ($preset !== '' && BusinessPresets::exists($preset)) {
+        if ($preset !== '' && (\App\Config\TemplatePatterns::exists($preset) || BusinessPresets::exists($preset))) {
             Database::update('settings', ['value' => $preset], 'key = :key', ['key' => 'business_preset']);
+        }
+        if ($blueprint !== '') {
+            Database::update('settings', ['value' => $blueprint], 'key = :key', ['key' => 'template_blueprint']);
         }
     }
 }

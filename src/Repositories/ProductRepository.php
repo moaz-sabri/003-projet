@@ -131,6 +131,13 @@ final class ProductRepository
     private function formatCatalog(array $row): array
     {
         $extra = json_decode((string) $row['extra_json'], true) ?: [];
+        $paths = $this->galleryPaths($extra);
+        $urls  = array_map([ProjectConfig::class, 'uploadsUrl'], $paths);
+
+        // صورة الغلاف: الصورة الأساسية، وإن غابت فالصورة الأولى من المعرض.
+        $image = $row['image_path'] !== ''
+            ? ProjectConfig::uploadsUrl($row['image_path'])
+            : ($urls[0] ?? '');
 
         return [
             'id'          => (int) $row['id'],
@@ -138,7 +145,8 @@ final class ProductRepository
             'description' => (string) $row['description'],
             'price'       => Money::format((int) $row['price_minor']),
             'price_minor' => (int) $row['price_minor'],
-            'image'       => $row['image_path'] !== '' ? ProjectConfig::uploadsUrl($row['image_path']) : '',
+            'image'       => $image,
+            'gallery'     => $urls,
             'category_id' => $row['category_id'] !== null ? (int) $row['category_id'] : null,
             'category'    => (string) ($row['category_name'] ?? ''),
             'available'   => (bool) $row['is_available'],
@@ -152,6 +160,8 @@ final class ProductRepository
     private function formatAdmin(array $row): array
     {
         $extra = json_decode((string) $row['extra_json'], true) ?: [];
+        $paths = $this->galleryPaths($extra);
+        $urls  = array_map([ProjectConfig::class, 'uploadsUrl'], $paths);
 
         return [
             'id'          => (int) $row['id'],
@@ -163,12 +173,48 @@ final class ProductRepository
             'price_minor' => (int) $row['price_minor'],
             'image'       => $row['image_path'] !== '' ? ProjectConfig::uploadsUrl($row['image_path']) : '',
             'image_path'  => (string) $row['image_path'],
+            'gallery'     => $urls,
+            'gallery_paths' => $paths,
             'extra'       => $extra,
             'available'   => (bool) $row['is_available'],
             'featured'    => (bool) $row['is_featured'],
             'sort_order'  => (int) $row['sort_order'],
             'created_at'  => (string) $row['created_at'],
         ];
+    }
+
+    /**
+     * مسارات معرض المنتج المسموحة فقط.
+     * تُخزَّن داخل extra_json (بلا هجرة مخطط) وبصيغة products/xxx.ext،
+     * فلا يمكن أن يشير المعرض إلى ملف خارج مجلد الرفع.
+     *
+     * @return array<int, string>
+     */
+    public function galleryPaths(array $extra): array
+    {
+        if (!ProjectConfig::feature('product_gallery')) {
+            return [];
+        }
+        $raw = $extra['gallery'] ?? [];
+        if (!is_array($raw)) {
+            return [];
+        }
+        $out = [];
+        foreach (array_slice($raw, 0, 8) as $item) {
+            $path = is_array($item) ? ($item['path'] ?? '') : $item;
+            if (!is_scalar($path)) {
+                continue;
+            }
+            $path = trim((string) $path);
+            if ($path === '' || str_contains($path, '..') || str_starts_with($path, '/')) {
+                continue;
+            }
+            if (!preg_match('#^products/[A-Za-z0-9._-]+\.(?:jpe?g|png|webp|gif)$#i', $path)) {
+                continue;
+            }
+            $out[] = $path;
+        }
+        return array_values(array_unique($out));
     }
 
     /** وسوم قصيرة تظهر في بطاقة المنتج (مثل: نباتي، حار). */

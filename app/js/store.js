@@ -43,6 +43,31 @@
       return !(this.config && this.config.multi_item_orders === false);
     },
 
+    /** قدرات النمط الفعّالة (ordering · places · details · media …). */
+    pattern: function () {
+      return (this.config && this.config.pattern) || {};
+    },
+
+    orderingMode: function () {
+      return this.pattern().ordering || (this.hasOrdering() ? 'cart' : 'none');
+    },
+
+    hasReservations: function () {
+      return this.orderingMode() === 'reservation';
+    },
+
+    placesMode: function () {
+      return this.pattern().places || 'none';
+    },
+
+    detailsMode: function () {
+      return this.pattern().details || 'none';
+    },
+
+    mediaMode: function () {
+      return this.pattern().media || 'single';
+    },
+
     /* ------------------------- تفضيلات العرض ------------------------- */
 
     /** تفضيل الزبون لعرض المنتجات: 'grid' مربعات | 'list' صفوف منفردة. */

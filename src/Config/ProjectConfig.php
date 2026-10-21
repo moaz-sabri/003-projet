@@ -55,9 +55,21 @@ final class ProjectConfig
     {
         try {
             $id = \App\Core\RuntimeSettings::get('business_preset', '');
-            self::setOverrides(
-                BusinessPresets::exists($id) ? BusinessPresets::toOverrides($id) : null
-            );
+            if ($id === '' || (!TemplatePatterns::exists($id) && !BusinessPresets::exists($id))) {
+                self::setOverrides(null);
+                return;
+            }
+
+            /*
+             * النمط المخصص محفوظ كـ blueprint وقت التهيئة. نُفضّل اللقطة
+             * المحفوظة على تعريف النمط الحالي حتى لا يتغيّر سلوك نسخة
+             * قائمة عند ترقية القالب وإعادة ترتيب الأنماط الجاهزة.
+             */
+            $raw = \App\Core\RuntimeSettings::get('template_blueprint', '');
+            $blueprint = $raw !== '' ? json_decode($raw, true) : [];
+            $answers = is_array($blueprint) ? $blueprint : [];
+
+            self::setOverrides(TemplatePatterns::toOverrides($id, $answers));
         } catch (\Throwable) {
             self::setOverrides(null);
         }
@@ -114,8 +126,64 @@ final class ProjectConfig
      */
     public static function allowsMultiItems(): bool
     {
-        $default = in_array(self::presetId(), ['restaurant', 'store'], true);
+        $default = in_array(
+            self::presetId(),
+            ['restaurant', 'store', 'orders', 'orders_tables'],
+            true
+        );
         return (bool) self::ov('multi_item_orders', $default);
+    }
+
+    /**
+     * قدرات النمط الفعّالة — المصدر الواحد لواجهة الزبون ولوحة الإدارة.
+     *
+     * @return array<string, mixed>
+     */
+    public static function pattern(): array
+    {
+        $blueprint = (array) self::ov('template_blueprint', []);
+        if ($blueprint === []) {
+            // نسخة قديمة بلا لقطة blueprint: نستنبط القدرات من الثوابت.
+            $blueprint = TemplatePatterns::blueprintFromOverrides([
+                'mode'              => self::hasOrdering() ? self::MODE_ORDERS : self::MODE_CATALOG,
+                'multi_item_orders' => self::allowsMultiItems(),
+                'location_enabled'  => self::locationsEnabled(),
+                'location_required' => self::locationRequired(),
+                'location_source'   => self::locationSource(),
+                'order_types'       => self::orderTypes(),
+                'feature_overrides' => [
+                    'product_details' => self::feature('product_details'),
+                    'product_gallery' => self::feature('product_gallery'),
+                    'order_tracking'  => self::feature('order_tracking'),
+                ],
+            ]);
+        }
+        return TemplatePatterns::normalizeBlueprint($blueprint);
+    }
+
+    public static function orderingMode(): string
+    {
+        return (string) (self::pattern()['ordering'] ?? TemplatePatterns::ORDER_NONE);
+    }
+
+    public static function placesMode(): string
+    {
+        return (string) (self::pattern()['places'] ?? TemplatePatterns::PLACE_NONE);
+    }
+
+    public static function detailsMode(): string
+    {
+        return (string) (self::pattern()['details'] ?? TemplatePatterns::DETAIL_NONE);
+    }
+
+    public static function mediaMode(): string
+    {
+        return (string) (self::pattern()['media'] ?? TemplatePatterns::MEDIA_SINGLE);
+    }
+
+    public static function hasReservations(): bool
+    {
+        return self::orderingMode() === TemplatePatterns::ORDER_RESERVATION;
     }
 
     /** معرّف نوع النشاط المختار (restaurant, store, showroom, ...). */
@@ -171,7 +239,8 @@ final class ProjectConfig
 
     public static function homeHeroTitle(): string
     {
-        return (string) self::ov('home_hero_title', (string) self::DEFAULT_APP_TAGLINE);
+        // '' = لا عنوان من النمط؛ تختار الواجهة اسم النشاط (كما في تلميح الإدارة).
+        return (string) self::ov('home_hero_title', '');
     }
 
     /* =====================================================================
@@ -182,10 +251,10 @@ final class ProjectConfig
     public const DEFAULT_APP_NAME = 'مشروعي';
 
     /** سطر تعريفي قصير أسفل الاسم. */
-    public const DEFAULT_APP_TAGLINE = 'قائمة رقمية سريعة — اطلب مباشرة من طاولتك';
+    public const DEFAULT_APP_TAGLINE = 'موقعك الرقمي — عرض، طلبات، وتواصل في مكان واحد';
 
     /** رسالة ترحيب اختيارية تُعرض في صفحة الترحيب (فارغة = بلا رسالة). */
-    public const DEFAULT_WELCOME_MESSAGE = 'تصفّح القائمة وأرسل طلبك مباشرة. اختر طاولتك من الرمز أو من القائمة، ولا حاجة لإنشاء حساب.';
+    public const DEFAULT_WELCOME_MESSAGE = 'تعرّف على ما نقدّمه، وتواصل معنا مباشرة متى احتجت.';
 
     /** اللغة واتجاه الواجهة. */
     public const LOCALE          = 'ar';
@@ -485,6 +554,7 @@ final class ProjectConfig
         'search'           => true,  // البحث البسيط في المنتجات
         'order_types'      => true,  // اختيار نوع الطلب
         'product_details'  => true,  // صفحة/نافذة تفاصيل المنتج
+        'product_gallery'  => false, // معرض صور متعدد لكل عنصر
         'welcome_page'     => true,  // صفحة الترحيب
         'order_tracking'   => true,  // متابعة الطلب برمز QR
         'notes'            => true,  // ملاحظات الطلب
@@ -682,7 +752,31 @@ final class ProjectConfig
             'show_contact'        => '1',
             'show_prices'         => '1',
             'low_stock_note'      => '',
-            'business_preset'     => '',   // يُملأ في صفحة التهيئة
+            'business_preset'     => '',   // معرّف النمط (TemplatePatterns)
+            'template_blueprint'  => '',   // لقطة قدرات النمط وقت التهيئة (JSON)
+
+            /* --- الصفحة الرئيسية (Landing) ---
+             * القيمة الفارغة تعني: اتبع company.json أو القيمة الافتراضية.
+             * هذا يجعل الكود قادرًا على ضبط الصفحة، ويترك للمستخدم تجاوزها.
+             */
+            'home_layout'          => '',
+            'home_height'          => '',
+            'home_hero_eyebrow'    => '',
+            'home_hero_title'      => '',
+            'home_hero_text'       => '',
+            'home_primary_label'   => '',
+            'home_primary_url'     => '',
+            'home_secondary_label' => '',
+            'home_secondary_url'   => '',
+            'home_show_highlights' => '',
+            'home_show_sections'   => '',
+            'home_show_gallery'    => '',
+            'home_show_stats'      => '',
+            'home_show_testimonials' => '',
+            'home_show_faq'        => '',
+            'home_show_cta'        => '',
+            'home_show_contact'    => '',
+            'hero_image_path'      => '',
         ];
     }
 }

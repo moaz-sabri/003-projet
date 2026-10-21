@@ -678,6 +678,7 @@
       state.categories = data.categories;
       state.productFields = data.fields;
       state.detailFields = data.detail_fields || [];
+      state.galleryEnabled = data.gallery_enabled === true;
       state.labels = data.labels || state.labels;
       renderProducts();
     }).catch(function (error) { toast(error.message, 'error'); });
@@ -762,6 +763,25 @@
     }).join('');
 
     /* حقول التفاصيل: تُملأ من ملف company.json/types — تظهر عند اختيار نوع النشاط */
+    /* معرض الصور: يظهر فقط حين يفعّله النمط (product_gallery). */
+    var galleryField = '';
+    if (state.galleryEnabled) {
+      var galleryPaths = (product && product.gallery_paths) || [];
+      var galleryUrls = (product && product.gallery) || [];
+      galleryField = '<div class="field full"><label>معرض الصور (حتى 8 صور)</label>' +
+        '<input type="file" id="p-gallery" accept="image/png,image/jpeg,image/webp,image/gif" multiple>' +
+        (galleryPaths.length
+          ? '<div class="gallery-current">' + galleryPaths.map(function (path, index) {
+              return '<label class="gallery-pick">' +
+                '<img src="' + escapeHtml(galleryUrls[index] || '') + '" alt="">' +
+                '<span><input type="checkbox" data-gallery-keep value="' + escapeHtml(path) + '" checked> إبقاء</span>' +
+              '</label>';
+            }).join('') + '</div>' +
+            '<div class="field-hint">أزل التحديد عن أي صورة لحذفها عند الحفظ.</div>'
+          : '<div class="field-hint">لا توجد صور في المعرض بعد.</div>') +
+      '</div>';
+    }
+
     var detailFields = (state.detailFields || []).map(function (field) {
       var value = (product && product.extra) ? (product.extra[field.key] || '') : '';
       var hint = field.hint ? '<div class="field-hint">' + escapeHtml(field.hint) + '</div>' : '';
@@ -803,6 +823,7 @@
           '<span class="switch-track"></span> مميّز</label>' +
         '</div>' +
       '</div>' +
+      galleryField +
       (extraFields ? '<h4 class="section-title bordered">حقول إضافية</h4>' + extraFields : '') +
       (detailFields ? '<h4 class="section-title bordered">تفاصيل المنتج</h4>' + detailFields : ''),
       function () {
@@ -819,6 +840,14 @@
           details[el.getAttribute('data-detail')] = el.value;
         });
 
+        if (state.galleryEnabled) {
+          var keptGallery = [];
+          document.querySelectorAll('[data-gallery-keep]').forEach(function (el) {
+            if (el.checked) keptGallery.push(el.value);
+          });
+          extra.gallery = keptGallery;
+        }
+
         var payload = {
           id: id || 0,
           name: name,
@@ -832,6 +861,17 @@
           details: details
         };
 
+        /*
+         * لا نرسل صورًا سترفضها الخادم بعد الرفع (فتترك ملفات يتيمة):
+         * نحسب المقاعد المتبقية من أصل 8 قبل بدء الرفع.
+         */
+        var galleryInput = $('p-gallery');
+        var newGalleryCount = galleryInput && galleryInput.files ? galleryInput.files.length : 0;
+        if (state.galleryEnabled && newGalleryCount > Math.max(0, 8 - extra.gallery.length)) {
+          toast('الحد الأقصى 8 صور للمنتج. أزل صورة من المعرض أو من التحديد أولًا.', 'error');
+          return false;
+        }
+
         var chain = Promise.resolve();
 
         var fileInput = $('p-image');
@@ -842,6 +882,20 @@
             return fd;
           })() }).then(function (data) {
             payload.image_path = data.image_path;
+          });
+        }
+
+        if (galleryInput && galleryInput.files && galleryInput.files.length) {
+          chain = chain.then(function () {
+            var fd = new FormData();
+            Array.prototype.forEach.call(galleryInput.files, function (file) {
+              fd.append('gallery[]', file);
+            });
+            return api('admin.product.gallery', { method: 'POST', body: fd }).then(function (data) {
+              (data.images || []).forEach(function (image) {
+                payload.extra.gallery.push(image.path);
+              });
+            });
           });
         }
 
@@ -977,7 +1031,7 @@
   /* ============================ الإعدادات ============================ */
 
 /**
-   * بطاقة تعريفية داخل صفحة الإعدادات: تُظهر نوع النشاط والوضع وحالة ملف
+   * بطاقة تعريفية داخل صفحة الإعدادات: تُظهر النمط وقدراته والوضع وحالة ملف
    * الشركة. الغرض منها أن يعرف المستخدم من أين يأتي محتوى الموقع فعلًا،
    * فلا يبحث عن حقل مخفي في لوحة لا تحتويه أصلًا.
    */
@@ -988,7 +1042,9 @@
     if (!box) return;
 
     var rows = [
-      ['نوع النشاط', config.business_label || '—'],
+      ['النمط', (config.pattern_label || config.business_label || '—') +
+        (config.pattern_id ? ' (' + config.pattern_id + ')' : '')],
+      ['القدرات', config.pattern_description || '—'],
       ['الوضع', config.has_ordering
         ? 'مع نظام الطلبات (سلة، إتمام طلب، متابعة)'
         : 'عرض فقط — بلا سلة ولا طلبات'],
@@ -1004,9 +1060,9 @@
         '</div><div class="v">' + escapeHtml(row[1]) + '</div></div>';
     }).join('') + '</div>';
 
-    html += '<p class="field-hint">لتغيير الوضع أو التسميات أو أنواع الطلبات: عدّل ' +
-      '<code>src/Config/BusinessPresets.php</code> ثم نفّذ ' +
-      '<code>php bin/console preset:apply</code>.</p>';
+    html += '<p class="field-hint">لتغيير الوضع أو التسميات أو أنواع الطلبات: اختر نمطًا آخر بـ' +
+      ' <code>php bin/console preset apply &lt;المعرّف&gt;</code>، أو عدّل ' +
+      '<code>src/Config/TemplatePatterns.php</code> لإضافة نمط جديد.</p>';
 
     box.innerHTML = html;
   }
@@ -1063,6 +1119,46 @@
         (s.logo_path ? '<div class="field-hint">الشعار الحالي: ' + escapeHtml(s.logo_path) + '</div>' : '') + '</div>' +
       '<div class="field"><label>هاتف التواصل</label><input id="s-phone" value="' + escapeHtml(s.contact_phone || '') + '" maxlength="30"></div>' +
       '<div class="field"><label>إنستغرام</label><input id="s-instagram" value="' + escapeHtml(s.contact_instagram || '') + '" maxlength="60"></div>' +
+
+      '<div class="field full"><h4 class="section-title bordered">الصفحة الرئيسية</h4>' +
+        '<p class="field-hint">اترك أي حقل فارغًا ليأخذ قيمته من <code>app/data/company.json</code>. ' +
+        'هكذا يمكن تخصيص الصفحة من الكود أو من هنا بلا تعارض.</p></div>' +
+      '<div class="field"><label>تخطيط الغلاف</label>' +
+        selectField('s-home-layout', s.home_layout, [
+          ['', 'ورّث من الملف'], ['classic', 'كلاسيكي — صورة ثم نص'],
+          ['split', 'منقسم — صورة ونص جنبًا إلى جنب'],
+          ['cover', 'غلاف كامل — الصورة خلف النص'],
+          ['spotlight', 'مركّز — شعار ونص في الوسط']
+        ]) + '</div>' +
+      '<div class="field"><label>ارتفاع الغلاف</label>' +
+        selectField('s-home-height', s.home_height, [
+          ['', 'ورّث من الملف'], ['compact', 'مضغوط'], ['large', 'كبير'], ['full', 'كامل الشاشة']
+        ]) + '</div>' +
+      '<div class="field full"><label>صورة الغلاف</label>' +
+        '<input type="file" id="s-hero" accept="image/png,image/jpeg,image/webp,image/gif">' +
+        (s.hero_image_url ? '<div class="field-hint">الصورة الحالية: ' + escapeHtml(s.hero_image_path || '') + '</div>' +
+          '<label class="check-inline"><input type="checkbox" id="s-hero-remove"> إزالة الصورة الحالية</label>' : '') +
+      '</div>' +
+      '<div class="field"><label>النص العلوي (eyebrow)</label><input id="s-home-eyebrow" value="' + escapeHtml(s.home_hero_eyebrow || '') + '" maxlength="120" placeholder="مثال: منذ 2015"></div>' +
+      '<div class="field"><label>عنوان الغلاف</label><input id="s-home-title" value="' + escapeHtml(s.home_hero_title || '') + '" maxlength="120" placeholder="اتركه فارغًا للنمط أو اسم النشاط"></div>' +
+      '<div class="field full"><label>نص الغلاف</label><textarea id="s-home-text" maxlength="1200" placeholder="اتركه فارغًا لاعتماد نبذة الصفحة الرئيسية.">' + escapeHtml(s.home_hero_text || '') + '</textarea></div>' +
+      '<div class="field"><label>الزر الأساسي — النص</label><input id="s-home-primary-label" value="' + escapeHtml(s.home_primary_label || '') + '" maxlength="60" placeholder="تصفّح المنتجات"></div>' +
+      '<div class="field"><label>الزر الأساسي — الرابط</label><input id="s-home-primary-url" value="' + escapeHtml(s.home_primary_url || '') + '" maxlength="300" placeholder="products أو https://…"></div>' +
+      '<div class="field"><label>الزر الثانوي — النص</label><input id="s-home-secondary-label" value="' + escapeHtml(s.home_secondary_label || '') + '" maxlength="60" placeholder="تواصل معنا"></div>' +
+      '<div class="field"><label>الزر الثانوي — الرابط</label><input id="s-home-secondary-url" value="' + escapeHtml(s.home_secondary_url || '') + '" maxlength="300" placeholder="contact أو https://…"></div>' +
+
+      '<div class="field full"><label>عناصر الصفحة الرئيسية</label>' +
+        '<div class="field-row">' +
+          triSelect('s-home-show-highlights', 'نقاط التميّز', s.home_show_highlights) +
+          triSelect('s-home-show-sections', 'الأقسام', s.home_show_sections) +
+          triSelect('s-home-show-gallery', 'معرض الصور', s.home_show_gallery) +
+          triSelect('s-home-show-stats', 'الأرقام', s.home_show_stats) +
+          triSelect('s-home-show-testimonials', 'آراء الزبائن', s.home_show_testimonials) +
+          triSelect('s-home-show-faq', 'الأسئلة الشائعة', s.home_show_faq) +
+          triSelect('s-home-show-cta', 'شريط الدعوة', s.home_show_cta) +
+          triSelect('s-home-show-contact', 'التواصل السريع', s.home_show_contact) +
+        '</div></div>' +
+
       '<div class="field full"><label>خيارات العرض</label>' +
         toggle('s-show-welcome', 'إظهار صفحة الترحيب', s.show_welcome) +
         toggle('s-show-search', 'إظهار البحث', s.show_search) +
@@ -1088,7 +1184,27 @@
         var parts = pair.split(':');
         fd.append(parts[0], $(parts[1]).checked ? '1' : '0');
       });
+
+      /* --- الصفحة الرئيسية: النصوص والاختيارات --- */
+      ['home_layout:s-home-layout', 'home_height:s-home-height',
+       'home_hero_eyebrow:s-home-eyebrow', 'home_hero_title:s-home-title',
+       'home_hero_text:s-home-text', 'home_primary_label:s-home-primary-label',
+       'home_primary_url:s-home-primary-url', 'home_secondary_label:s-home-secondary-label',
+       'home_secondary_url:s-home-secondary-url'].forEach(function (pair) {
+        var parts = pair.split(':');
+        fd.append(parts[0], $(parts[1]).value);
+      });
+      ['home_show_highlights:s-home-show-highlights', 'home_show_sections:s-home-show-sections',
+       'home_show_gallery:s-home-show-gallery', 'home_show_stats:s-home-show-stats',
+       'home_show_testimonials:s-home-show-testimonials', 'home_show_faq:s-home-show-faq',
+       'home_show_cta:s-home-show-cta', 'home_show_contact:s-home-show-contact'].forEach(function (pair) {
+        var parts = pair.split(':');
+        fd.append(parts[0], $(parts[1]).value);
+      });
+
       if ($('s-logo').files && $('s-logo').files[0]) fd.append('logo', $('s-logo').files[0]);
+      if ($('s-hero').files && $('s-hero').files[0]) fd.append('hero', $('s-hero').files[0]);
+      if ($('s-hero-remove') && $('s-hero-remove').checked) fd.append('remove_hero', '1');
 
       api('admin.settings.update', { method: 'POST', body: fd }).then(function (data) {
         state.settings = data.settings;
@@ -1106,6 +1222,24 @@
     function toggle(id, label, checked) {
       return '<label class="switch me-lg"><input type="checkbox" id="' + id + '"' +
         (checked ? ' checked' : '') + '><span class="switch-track"></span> ' + label + '</label>';
+    }
+
+    /** قائمة اختيار عامة: القيمة الفارغة = «ورّث من company.json». */
+    function selectField(id, value, options) {
+      var current = value === undefined || value === null ? '' : String(value);
+      return '<select id="' + id + '">' + options.map(function (option) {
+        return '<option value="' + escapeHtml(option[0]) + '"' +
+          (current === String(option[0]) ? ' selected' : '') + '>' +
+          escapeHtml(option[1]) + '</option>';
+      }).join('') + '</select>';
+    }
+
+    /** ثلاثي الحالة: ورّث / إظهار / إخفاء — الفارغ يعني اتبع الملف. */
+    function triSelect(id, label, value) {
+      return '<div class="field"><label>' + escapeHtml(label) + '</label>' +
+        selectField(id, value, [
+          ['', 'ورّث من الملف'], ['1', 'إظهار'], ['0', 'إخفاء']
+        ]) + '</div>';
     }
   }
 
@@ -1137,7 +1271,8 @@
     }).catch(function (error) { toast(error.message, 'error'); });
 
     $('version-info').innerHTML = '' +
-      infoBox('نوع النشاط', state.config.business_type || '—') +
+      infoBox('النمط', (state.config.pattern_label || '—') + ' (' +
+        (state.config.pattern_id || state.config.business_type || '—') + ')') +
       infoBox('العملة', state.config.currency || '—') +
       infoBox('نوع الطلبات', (state.config.order_types || []).map(function (t) { return t.label; }).join('، ') || '—') +
       infoBox('التقنية', 'PHP ' + '· SQLite · PWA');

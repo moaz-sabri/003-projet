@@ -104,20 +104,26 @@ switch ($command) {
         \App\Core\Migrations::migrate();
 
         /*
-         * نوع النشاط (اختياري): --preset=restaurant يحدد الوضع والتسميات
+         * النمط (اختياري): --preset=orders_tables يحدد القدرات والتسميات
          * كما تفعل صفحة التهيئة، فيبقى التثبيت من الطرفية مطابقًا للتثبيت من الويب.
+         * تُقبل معرّفات الأنشطة القديمة (restaurant/store…) للتوافق.
          */
-        $presetId = (string) ($options['preset'] ?? \App\Config\BusinessPresets::defaultId());
-        if (!\App\Config\BusinessPresets::exists($presetId)) {
-            $say('نوع نشاط غير معروف: ' . $presetId, 'err');
-            $say('المتاح: ' . implode(', ', array_keys(\App\Config\BusinessPresets::all())), 'err');
+        $presetId = (string) ($options['preset'] ?? \App\Config\TemplatePatterns::defaultId());
+        if (!\App\Config\TemplatePatterns::exists($presetId)
+            && !\App\Config\BusinessPresets::exists($presetId)) {
+            $say('نمط غير معروف: ' . $presetId, 'err');
+            $say('المتاح: ' . implode(', ', array_keys(\App\Config\TemplatePatterns::all())), 'err');
             exit(1);
         }
-        $preset = \App\Config\BusinessPresets::get($presetId);
-        \App\Config\ProjectConfig::setOverrides(\App\Config\BusinessPresets::toOverrides($presetId));
+        $overrides = \App\Config\TemplatePatterns::toOverrides($presetId);
+        \App\Config\ProjectConfig::setOverrides($overrides);
 
         $runtime = \App\Config\ProjectConfig::defaultRuntimeSettings();
         $runtime['business_preset'] = $presetId;
+        $runtime['template_blueprint'] = json_encode(
+            (array) ($overrides['template_blueprint'] ?? []),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ) ?: '';
         $runtime['welcome_message'] = '';
         $runtime['show_welcome'] = '0';
         if (!empty($options['name'])) {
@@ -144,8 +150,8 @@ switch ($command) {
         $say('رابط الموقع : ' . $url);
         $say('لوحة الإدارة : ' . $url . '/admin/');
         $say('اسم المستخدم: ' . $user);
-        $say('نوع النشاط  : ' . ($preset['label'] ?? $presetId) . ' — ' .
-            (($preset['mode'] ?? '') === \App\Config\BusinessPresets::MODE_ORDERS
+        $say('النمط       : ' . ($overrides['preset_label'] ?? $presetId) . ' — ' .
+            (($overrides['mode'] ?? '') === \App\Config\TemplatePatterns::MODE_ORDERS
                 ? 'مع نظام الطلبات' : 'عرض فقط'));
 
         /*
@@ -401,8 +407,9 @@ switch ($command) {
         $db = \App\Core\Database::pdo();
         $say('PHP: ' . PHP_VERSION);
         $say('إصدار القالب: ' . \App\Config\ProjectConfig::VERSION);
-        $say('نوع النشاط: ' . \App\Config\ProjectConfig::presetLabel()
+        $say('النمط: ' . \App\Config\ProjectConfig::presetLabel()
             . ' (' . \App\Config\ProjectConfig::presetId() . ')');
+        $say('القدرات: ' . \App\Config\TemplatePatterns::describe(\App\Config\ProjectConfig::pattern()));
         $say('الوضع: ' . (\App\Config\ProjectConfig::hasOrdering()
             ? 'مع نظام الطلبات' : 'عرض فقط — بلا طلبات'));
         $say('تسميات المنتجات: ' . \App\Config\ProjectConfig::productSingular()
@@ -460,24 +467,27 @@ switch ($command) {
         $action = $argv[2] ?? 'show';
 
         if ($action === 'list') {
-            $say('أنواع النشاط المتاحة:');
+            $say('أنماط القدرات المتاحة:');
             $current = \App\Config\ProjectConfig::presetId();
-            foreach (\App\Config\BusinessPresets::all() as $key => $preset) {
+            foreach (\App\Config\TemplatePatterns::all() as $key => $pattern) {
+                $blueprint = (array) ($pattern['blueprint'] ?? []);
                 $mark = $key === $current ? '  <- الحالي' : '';
-                $mode = ($preset['mode'] ?? '') === \App\Config\BusinessPresets::MODE_ORDERS
-                    ? 'مع الطلبات' : 'عرض فقط  ';
-                $say('  ' . str_pad($key, 12) . $mode . '  ' . ($preset['label'] ?? $key) . $mark);
+                $mode = ($blueprint['ordering'] ?? '') === \App\Config\TemplatePatterns::ORDER_NONE
+                    ? 'عرض فقط  ' : 'مع الطلبات';
+                $say('  ' . str_pad($key, 18) . $mode . '  ' . ($pattern['label'] ?? $key) . $mark);
             }
             $say('');
+            $say('تُقبل أيضًا المعرّفات القديمة (restaurant / store / clinic…) للتوافق.');
             $say('التطبيق: php bin/console preset apply <المعرّف>');
             exit(0);
         }
 
         if ($action === 'show') {
-            $say('النوع الحالي: ' . \App\Config\ProjectConfig::presetLabel()
+            $say('النمط الحالي: ' . \App\Config\ProjectConfig::presetLabel()
                 . ' (' . \App\Config\ProjectConfig::presetId() . ')');
             $say('الوضع: ' . (\App\Config\ProjectConfig::hasOrdering()
                 ? 'مع نظام الطلبات' : 'عرض فقط — بلا سلة ولا طلبات'));
+            $say('القدرات: ' . \App\Config\TemplatePatterns::describe(\App\Config\ProjectConfig::pattern()));
             $say('تسميات المنتجات: ' . \App\Config\ProjectConfig::productSingular()
                 . ' / ' . \App\Config\ProjectConfig::productPlural());
             $say('');
@@ -487,21 +497,31 @@ switch ($command) {
 
         if ($action === 'apply') {
             $id = $argv[3] ?? '';
-            if (!\App\Config\BusinessPresets::exists($id)) {
+            if (!\App\Config\TemplatePatterns::exists($id)
+                && !\App\Config\BusinessPresets::exists($id)) {
                 $say('معرّف غير معروف: ' . $id, 'err');
                 $say('استخدم: php bin/console preset list لعرض المتاح', 'err');
                 exit(1);
             }
 
-            $preset = \App\Config\BusinessPresets::get($id);
-            \App\Core\RuntimeSettings::set('business_preset', $id);
+            $overrides = \App\Config\TemplatePatterns::toOverrides($id);
+            \App\Core\RuntimeSettings::setMany([
+                'business_preset'    => $id,
+                'template_blueprint' => json_encode(
+                    (array) ($overrides['template_blueprint'] ?? []),
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                ) ?: '',
+            ]);
             \App\Core\RuntimeSettings::flush();
 
-            $say('تم حفظ نوع النشاط: ' . ($preset['label'] ?? $id));
-            $say('الوضع الجديد: ' . (($preset['mode'] ?? '') === \App\Config\BusinessPresets::MODE_ORDERS
+            $say('تم حفظ النمط: ' . ($overrides['preset_label'] ?? $id));
+            $say('الوضع الجديد: ' . (($overrides['mode'] ?? '') === \App\Config\TemplatePatterns::MODE_ORDERS
                 ? 'مع نظام الطلبات' : 'عرض فقط — بلا سلة ولا طلبات'));
-            $say('تسميات المنتجات: ' . ($preset['product_singular'] ?? '')
-                . ' / ' . ($preset['product_plural'] ?? ''));
+            $say('القدرات: ' . \App\Config\TemplatePatterns::describe(
+                (array) ($overrides['template_blueprint'] ?? [])
+            ));
+            $say('تسميات المنتجات: ' . ($overrides['product_singular'] ?? '')
+                . ' / ' . ($overrides['product_plural'] ?? ''));
             $say('');
             $say('تنبيه: تغيّرت حقول المنتجات وأنواع الطلبات. المنتجات المحفوظة تحتفظ');
             $say('ببياناتها القديمة داخل extra_json، فراجع نموذج المنتج بعد التبديل.');
@@ -583,13 +603,13 @@ switch ($command) {
             $say('إصدار القالب: ' . $state['template_version']);
             if ($state['installed']) {
                 /*
-                 * bootstrap يقرأ نوع النشاط المحفوظ ويطبّقه. بدونه يُرجع
-                 * ProjectConfig الثابت الافتراضي (restaurant) بدل النوع
-                 * الحقيقي للنسخة — فيُظهر التقرير نوعًا لم تختره.
+                 * bootstrap يقرأ النمط المحفوظ ويطبّقه. بدونه يُرجع
+                 * ProjectConfig الثابت الافتراضي بدل النمط الحقيقي
+                 * للنسخة — فيُظهر التقرير نمطًا لم تختره.
                  */
                 require_once BASE_PATH . '/src/bootstrap.php';
                 $state = $service->state();
-                $say('نوع النشاط  : ' . ($state['preset'] ?? '؟')
+                $say('النمط        : ' . ($state['preset'] ?? '؟')
                     . ' (' . \App\Config\ProjectConfig::presetId() . ')');
                 $say('الوضع        : ' . (\App\Config\ProjectConfig::hasOrdering()
                     ? 'مع نظام الطلبات' : 'عرض فقط — بلا سلة ولا طلبات'));
@@ -698,7 +718,7 @@ switch ($command) {
 
         الأوامر المتاحة:
           install --url=... --user=... --pass=...   تهيئة النسخة لأول مرة
-                  [--preset=<نوع>] [--name=...] [--tagline=...]
+                  [--preset=<نمط>] [--name=...] [--tagline=...]
           migrate                                   تحديث مخطط قاعدة البيانات
           migrate:fresh                             حذف كل البيانات وإعادة الإنشاء
           instance state                            حالة النسخة وما سيُحذف
@@ -707,7 +727,7 @@ switch ($command) {
           admin:password --pass=...                 تعيين كلمة مرور المدير
           admin:reset --force                       فرض بيانات الدخول الافتراضية (طوارئ)
                   [--user=...] [--pass=...]         وطبع رابط التدمير السرّي
-          preset list|show|apply <المعرّف>         عرض أو تغيير نوع النشاط والوضع
+          preset list|show|apply <المعرّف>         عرض أو تغيير نمط القدرات والوضع
           backup                                    إنشاء نسخة احتياطية
           icons                                     توليد أيقونات PWA
           qr "نص" --out=file.svg                    توليد رمز QR كـ SVG
@@ -715,9 +735,10 @@ switch ($command) {
           security:check                           فحص حماية المسارات الحسّاسة
           status                                    عرض حالة النسخة
 
-        أنواع النشاط: restaurant | store | showroom | clinic | studio | general
-          restaurant و store و clinic و studio = مع نظام الطلبات
-          showroom و general                      = عرض فقط (بلا سلة ولا طلبات)
+        أنماط القدرات: orders_tables | orders | reservations | showcase
+          showcase_details | showcase_order | custom
+          الأنماط التي فيها طلبات: orders_tables | orders | showcase_order | reservations
+          المعرّفات القديمة (restaurant/store/showroom/clinic/studio/general) ما زالت مقبولة.
 
         TXT;
         exit($command === 'help' ? 0 : 1);

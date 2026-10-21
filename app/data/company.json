@@ -20,6 +20,44 @@
     "gallery": []
   },
 
+  "home": {
+    "layout": "classic",
+    "height": "large",
+
+    "show_highlights": true,
+    "show_sections": true,
+    "show_gallery": true,
+    "show_stats": true,
+    "show_testimonials": true,
+    "show_faq": true,
+    "show_cta": true,
+    "show_contact": true,
+
+    "hero": {
+      "eyebrow": "",
+      "title": "",
+      "text": "",
+      "primary_label": "",
+      "primary_url": "",
+      "secondary_label": "",
+      "secondary_url": ""
+    },
+
+    "stats": [
+      { "value": "", "label": "" }
+    ],
+
+    "testimonials_title": "قالوا عنّا",
+    "testimonials": [
+      { "quote": "", "name": "", "role": "" }
+    ],
+
+    "faq_title": "أسئلة شائعة",
+    "faq": [
+      { "q": "", "a": "" }
+    ]
+  },
+
   "contact": {
     "phone": "",
     "whatsapp": "",
